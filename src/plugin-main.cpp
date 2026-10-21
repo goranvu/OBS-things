@@ -3,7 +3,7 @@
  * Copyright (c) 2026. Released under GNU GPL v2 or later.
  *
  * This creates a native Qt dock, not an OBS video source.
- * Its number area is 30px high, with a visible "Broj gledalaca" title bar.
+ * Its number area is 34px high, with a visible "Broj gledalaca" title bar.
  * The X and floating controls are disabled.
  */
 
@@ -26,7 +26,7 @@ OBS_MODULE_USE_DEFAULT_LOCALE("obs-fixed-counter", "en-US")
 
 namespace {
 constexpr auto DockId = "obs-fixed-counter-354";
-constexpr int ContentHeight = 30;
+constexpr int ContentHeight = 34;
 QPointer<QDockWidget> ourDock;
 bool obsIsExiting = false;
 
@@ -44,7 +44,7 @@ public:
         auto *number = new QLabel(QStringLiteral("354"), this);
         number->setAlignment(Qt::AlignCenter);
         QFont numberFont = number->font();
-        numberFont.setPixelSize(20); // actual pixel size, not typographic points
+        numberFont.setPixelSize(22); // actual pixel size, not typographic points
         numberFont.setWeight(QFont::Normal);
         number->setFont(numberFont);
         number->setStyleSheet(QStringLiteral("color: #9BCDE5; background: transparent;"));
@@ -98,7 +98,7 @@ void addCounterDock()
         blog(LOG_INFO, "[OBS 354] Controls not docked; counter added to right area.");
     }
     dock->show();
-    blog(LOG_INFO, "[OBS 354] Fixed 30px content dock added (title = Broj gledalaca, counter = 354).");
+    blog(LOG_INFO, "[OBS 354] Fixed 34px content dock added (title = Broj gledalaca, counter = 354).");
 }
 
 void onFrontendEvent(enum obs_frontend_event event, void *)
@@ -119,7 +119,7 @@ void onFrontendEvent(enum obs_frontend_event event, void *)
 
 extern "C" const char *obs_module_description(void)
 {
-    return "OBS dock titled Broj gledalaca with a fixed 30px number area displaying 354.";
+    return "OBS dock titled Broj gledalaca with a fixed 34px number area displaying 354.";
 }
 
 extern "C" bool obs_module_load(void)
