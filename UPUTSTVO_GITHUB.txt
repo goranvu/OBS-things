@@ -1,0 +1,40 @@
+OBS BROJ GLEDALACA - DLL BEZ VISUAL STUDIJA NA RACUNARU
+=======================================================
+
+Potreban je samo GitHub nalog i internet pregledač.
+Kompilacija se izvodi na GitHub-ovom Windows-2022 racunaru.
+
+KORACI
+1. Otvori https://github.com/new i prijavi se.
+2. Napravi novi PUBLIC repository, npr. obs-broj-gledalaca, sa README fajlom
+   (to je zgodno da repozitorijum odmah ima granu main).
+3. Na GitHub stranici repozitorijuma izaberi Add file > Upload files.
+4. Raspakuj ovaj ZIP na svom racunaru.
+5. Prevuci SADRZAJ foldera OBS_Broj_gledalaca_GitHub_izrada u upload prozor:
+   CMakeLists.txt, buildspec.json, src/, data/ i .github/.
+   Vazno: .github je skriven folder na Windowsu; ukljuci prikaz hidden items.
+   Ako web uploader ne prenese foldere pravilno, koristi GitHub web-editor
+   (taster . u repo) i kopiraj ih u odgovarajuce lokacije.
+6. Potvrdi Commit changes.
+7. Otvori karticu Actions, izaberi 'Napravi OBS DLL na GitHub-u',
+   zatim Run workflow > Run workflow ako se sam nije pokrenuo.
+8. Ako build uspe, otvori njegovu stranicu i u delu Artifacts preuzmi
+   'OBS-Broj-gledalaca-Windows' ZIP. Nije DLL sam za sebe nego direktorijum
+   sa DLL i njegovom data locale datotekom.
+9. Raspakuj arhivu, zatvori OBS i kopiraj dobijeni sadrzaj u:
+   C:\ProgramData\obs-studio\plugins\obs-fixed-counter\
+   Tako da DLL bude u:
+   C:\ProgramData\obs-studio\plugins\obs-fixed-counter\bin\64bit\obs-fixed-counter.dll
+   a en-US.ini u data\locale\en-US.ini.
+10. Ponovo pokreni OBS. Pogledaj Help > Log Files > View Current Log ako nije ucitan.
+
+NAPOMENA
+- Ovo je pripremljen, ali NEISPROBAN workflow; stvarni Windows DLL ovde
+  nisam mogao da prevedem niti testiram. Ako build prijavi gresku,
+  GitHub prikazuje zapis greske za ispravku.
+- GitHub Actions kod javnih repozitorijuma uobicajeno je dostupan bez placanja,
+  ali podlozan je aktuelnim pravilima GitHub naloga.
+- Koristi odgovarajucu OBS x64 verziju; projekat polazi od OBS 31.1.1
+  development biblioteka, pa kompatibilnost proveri u svojoj verziji OBS-a.
+- Sadrzaj brojaca je fiksan '354' dok se kasnije ne uradi automatsko citanje.
+- Visina sadrzaja je 30px, font 20px, naslov Broj gledalaca.
