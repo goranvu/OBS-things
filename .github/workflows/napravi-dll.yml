@@ -1,0 +1,57 @@
+name: Napravi OBS DLL na GitHub-u
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+permissions:
+  contents: read
+
+jobs:
+  windows-dll:
+    name: Windows OBS plugin
+    runs-on: windows-2022
+    steps:
+      - name: Preuzmi moje fajlove
+        uses: actions/checkout@v4
+
+      - name: Preuzmi zvanicni OBS plugin sablon
+        shell: pwsh
+        run: git clone --depth 1 https://github.com/obsproject/obs-plugintemplate.git template
+
+      - name: Postavi moj izvorni kod
+        shell: pwsh
+        run: |
+          Copy-Item CMakeLists.txt template/CMakeLists.txt -Force
+          Copy-Item buildspec.json template/buildspec.json -Force
+          Copy-Item src/plugin-main.cpp template/src/plugin-main.cpp -Force
+          Remove-Item template/src/plugin-main.c -ErrorAction SilentlyContinue
+          Copy-Item data/locale/en-US.ini template/data/locale/en-US.ini -Force
+
+      - name: Pripremi kompilaciju
+        shell: pwsh
+        working-directory: template
+        run: cmake --preset windows-x64 -DENABLE_QT=ON -DENABLE_FRONTEND_API=ON
+
+      - name: Kompajliraj DLL
+        shell: pwsh
+        working-directory: template
+        run: cmake --build --preset windows-x64 --config RelWithDebInfo
+
+      - name: Pripremi paket
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem template/build_x64 -Recurse -Filter obs-fixed-counter.dll -File | Select-Object -First 1
+          if (!$dll) { throw 'Kompilacija nije proizvela obs-fixed-counter.dll' }
+          New-Item -ItemType Directory -Force paket/obs-fixed-counter/bin/64bit | Out-Null
+          New-Item -ItemType Directory -Force paket/obs-fixed-counter/data/locale | Out-Null
+          Copy-Item $dll.FullName paket/obs-fixed-counter/bin/64bit/obs-fixed-counter.dll
+          Copy-Item data/locale/en-US.ini paket/obs-fixed-counter/data/locale/en-US.ini
+
+      - name: Sacuvaj paket za preuzimanje
+        uses: actions/upload-artifact@v4
+        with:
+          name: OBS-Broj-gledalaca-Windows
+          path: paket/obs-fixed-counter/
+          if-no-files-found: error
