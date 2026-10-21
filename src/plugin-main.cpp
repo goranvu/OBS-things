@@ -26,7 +26,7 @@ OBS_MODULE_USE_DEFAULT_LOCALE("obs-fixed-counter", "en-US")
 
 namespace {
 constexpr auto DockId = "obs-fixed-counter-354";
-constexpr int ContentHeight = 34;
+constexpr int ContentHeight = 40;
 QPointer<QDockWidget> ourDock;
 bool obsIsExiting = false;
 
@@ -44,7 +44,7 @@ public:
         auto *number = new QLabel(QStringLiteral("354"), this);
         number->setAlignment(Qt::AlignCenter);
         QFont numberFont = number->font();
-        numberFont.setPixelSize(22); // actual pixel size, not typographic points
+        numberFont.setPixelSize(24); // actual pixel size, not typographic points
         numberFont.setWeight(QFont::Normal);
         number->setFont(numberFont);
         number->setStyleSheet(QStringLiteral("color: #9BCDE5; background: transparent;"));
