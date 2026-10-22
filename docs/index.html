@@ -28,10 +28,13 @@
     right: 8px;
     z-index: 10;
     padding: 6px 12px;
-    background: #000;
+    background: transparent;
     color: #ff0;
-    font: 700 clamp(24px, 5vw, 48px)/1.1 Arial, sans-serif;
+    font: 700 clamp(18px, 3.5vw, 32px)/1.1 Arial, sans-serif;
     font-variant-numeric: tabular-nums;
+    -webkit-text-stroke: 2px #000;
+    paint-order: stroke fill;
+    text-shadow: 0 1px 2px #000;
     pointer-events: none;
     user-select: none;
   }
