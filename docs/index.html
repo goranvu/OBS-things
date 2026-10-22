@@ -2,9 +2,6 @@
 <html lang="sr-Latn">
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-<meta http-equiv="Pragma" content="no-cache">
-<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>YouTube prenos - OBS</title>
@@ -25,22 +22,6 @@
     border: 0;
     pointer-events: none;
   }
-  .viewer-count-preview {
-    position: fixed;
-    top: 8px;
-    right: 8px;
-    z-index: 10;
-    padding: 6px 12px;
-    background: transparent;
-    color: #ff0;
-    font: 700 clamp(18px, 3.5vw, 32px)/1.1 Arial, sans-serif;
-    font-variant-numeric: tabular-nums;
-    -webkit-text-stroke: 2px #000;
-    paint-order: stroke fill;
-    text-shadow: 0 1px 2px #000;
-    pointer-events: none;
-    user-select: none;
-  }
 </style>
 </head>
 <body>
@@ -51,14 +32,20 @@
   referrerpolicy="strict-origin-when-cross-origin"
   allow="autoplay; encrypted-media; picture-in-picture"
 ></iframe>
-<div class="viewer-count-preview" aria-label="Probni broj: 217">217</div>
 
 <script>
 (() => {
-  // TheLodgeLive; stari sacuvani izbor videa ne menja ovaj kanal.
-  const channel = "UCbkK3nFzsxy6FzT5kvKoVNg";
-  const selectedVideo = "";
-  const hasVideo = false;
+  // Zadrzan je trenutni Channel ID iz tvog GitHub projekta.
+  const channel = "UCQXPKDYp4U9JkTWAON_AhOw";
+
+  // Ako si ranije u panelu izabrao konkretan video,
+  // zadrzavamo taj izbor i bez prikazivanja dugmeta Settings.
+  let selectedVideo = "";
+  try {
+    selectedVideo = localStorage.getItem("hac_obs_video_id_2026_v1") || "";
+  } catch (_) {}
+
+  const hasVideo = /^[a-zA-Z0-9_-]{11}$/.test(selectedVideo);
   const options = "autoplay=1&mute=1&controls=0&disablekb=1&fs=0&playsinline=1&rel=0"
     + "&origin=" + encodeURIComponent(location.origin);
   const url = hasVideo
@@ -66,54 +53,6 @@
     : "https://www.youtube.com/embed/live_stream?channel=" + encodeURIComponent(channel) + "&" + options;
 
   document.getElementById("player").src = url;
-})();
-</script>
-<script>
-(() => {
-  let checking = false;
-  let lastReload = 0;
-
-  // Zanemari samo src koji skripta plejera postavlja tokom rada.
-  function pageMarkup(doc) {
-    const root = doc.documentElement.cloneNode(true);
-    const player = root.querySelector("#player");
-    if (player) player.removeAttribute("src");
-    return root.outerHTML;
-  }
-
-  async function checkLatestPage() {
-    if (checking) return;
-    checking = true;
-    try {
-      const url = new URL(location.href);
-      url.searchParams.set("_fresh", Date.now().toString());
-      const response = await fetch(url.href, {
-        cache: "no-store",
-        credentials: "same-origin"
-      });
-      if (!response.ok) return;
-      const latest = new DOMParser().parseFromString(await response.text(), "text/html");
-      if (!latest.querySelector("#player")) return;
-      if (pageMarkup(latest) !== pageMarkup(document)) {
-        // Ogranicenje sprecava petlju ako se verzija promeni tokom objavljivanja.
-        try {
-          lastReload = Number(sessionStorage.getItem("obs_page_last_reload") || 0);
-        } catch (_) {}
-        if (Date.now() - lastReload < 15000) return;
-        try {
-          sessionStorage.setItem("obs_page_last_reload", Date.now().toString());
-        } catch (_) {}
-        location.replace(url.href);
-      }
-    } catch (_) {
-      // Ako internet nije dostupan, zadrzi trenutno ucitanu stranicu.
-    } finally {
-      checking = false;
-    }
-  }
-
-  // Pokrece se pri svakom otvaranju, ukljucujuci vracanje iz memorijskog kesa.
-  window.addEventListener("pageshow", checkLatestPage);
 })();
 </script>
 </body>
