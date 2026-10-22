@@ -55,17 +55,10 @@
 
 <script>
 (() => {
-  // Zadrzan je trenutni Channel ID iz tvog GitHub projekta.
-  const channel = "UCQXPKDYp4U9JkTWAON_AhOw";
-
-  // Ako si ranije u panelu izabrao konkretan video,
-  // zadrzavamo taj izbor i bez prikazivanja dugmeta Settings.
-  let selectedVideo = "";
-  try {
-    selectedVideo = localStorage.getItem("hac_obs_video_id_2026_v1") || "";
-  } catch (_) {}
-
-  const hasVideo = /^[a-zA-Z0-9_-]{11}$/.test(selectedVideo);
+  // Jon Cohen Official; stari sacuvani izbor videa ne menja ovaj kanal.
+  const channel = "UCKzslvOa84Tc4CTE1EMKGGA";
+  const selectedVideo = "";
+  const hasVideo = false;
   const options = "autoplay=1&mute=1&controls=0&disablekb=1&fs=0&playsinline=1&rel=0"
     + "&origin=" + encodeURIComponent(location.origin);
   const url = hasVideo
