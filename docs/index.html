@@ -2,6 +2,9 @@
 <html lang="sr-Latn">
 <head>
 <meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>YouTube prenos - OBS</title>
@@ -70,6 +73,54 @@
     : "https://www.youtube.com/embed/live_stream?channel=" + encodeURIComponent(channel) + "&" + options;
 
   document.getElementById("player").src = url;
+})();
+</script>
+<script>
+(() => {
+  let checking = false;
+  let lastReload = 0;
+
+  // Zanemari samo src koji skripta plejera postavlja tokom rada.
+  function pageMarkup(doc) {
+    const root = doc.documentElement.cloneNode(true);
+    const player = root.querySelector("#player");
+    if (player) player.removeAttribute("src");
+    return root.outerHTML;
+  }
+
+  async function checkLatestPage() {
+    if (checking) return;
+    checking = true;
+    try {
+      const url = new URL(location.href);
+      url.searchParams.set("_fresh", Date.now().toString());
+      const response = await fetch(url.href, {
+        cache: "no-store",
+        credentials: "same-origin"
+      });
+      if (!response.ok) return;
+      const latest = new DOMParser().parseFromString(await response.text(), "text/html");
+      if (!latest.querySelector("#player")) return;
+      if (pageMarkup(latest) !== pageMarkup(document)) {
+        // Ogranicenje sprecava petlju ako se verzija promeni tokom objavljivanja.
+        try {
+          lastReload = Number(sessionStorage.getItem("obs_page_last_reload") || 0);
+        } catch (_) {}
+        if (Date.now() - lastReload < 15000) return;
+        try {
+          sessionStorage.setItem("obs_page_last_reload", Date.now().toString());
+        } catch (_) {}
+        location.replace(url.href);
+      }
+    } catch (_) {
+      // Ako internet nije dostupan, zadrzi trenutno ucitanu stranicu.
+    } finally {
+      checking = false;
+    }
+  }
+
+  // Pokrece se pri svakom otvaranju, ukljucujuci vracanje iz memorijskog kesa.
+  window.addEventListener("pageshow", checkLatestPage);
 })();
 </script>
 </body>
