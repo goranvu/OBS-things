@@ -22,6 +22,19 @@
     border: 0;
     pointer-events: none;
   }
+  .viewer-count-preview {
+    position: fixed;
+    top: 8px;
+    right: 8px;
+    z-index: 10;
+    padding: 6px 12px;
+    background: #000;
+    color: #ff0;
+    font: 700 clamp(24px, 5vw, 48px)/1.1 Arial, sans-serif;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+    user-select: none;
+  }
 </style>
 </head>
 <body>
@@ -32,6 +45,7 @@
   referrerpolicy="strict-origin-when-cross-origin"
   allow="autoplay; encrypted-media; picture-in-picture"
 ></iframe>
+<div class="viewer-count-preview" aria-label="Probni broj: 356">356</div>
 
 <script>
 (() => {
