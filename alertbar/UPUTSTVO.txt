@@ -7,4 +7,6 @@ No text, no controls, no slider, no automatic gain, no audio changes.
 If you have multiple Line In endpoints, edit OBS plugin_config/obs-linein-alert/settings.ini:
 [General]
 device_id=<Windows MMDevice endpoint ID>
-The Windows endpoint peak meter is pre-endpoint attenuation and cannot diagnose all analog pre-ADC clipping. Tested only algorithmically, not on your audio hardware.
+The Windows endpoint peak meter is pre-endpoint attenuation and cannot diagnose all analog pre-ADC clipping.
+This plugin does not interfere with the existing viewer-counter DLL.
+Tested only algorithmically, not on the physical sound card.
