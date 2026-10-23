@@ -139,7 +139,7 @@ public:
             }
             QString lowered=name.toLower();
             if(lowered.contains("line in")||lowered.contains("line-in")||
-               small.contains("line input")||lowered.contains("linijski ulaz"))
+               lowered.contains("line input")||lowered.contains("linijski ulaz"))
                 line.push_back(id);
         }
         QString chosen;
