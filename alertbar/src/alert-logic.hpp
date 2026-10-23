@@ -21,3 +21,28 @@ public:
     bool blink(int64_t now)const{return now<end&&((now/105)%2==0);}
 };
 }
+
+// Windowed detection: the last 8 consecutive 250 ms windows must
+// each contain a peak above -1 dBFS. The guard resets after every
+// gain reduction, requiring a fresh 2-second exposure.
+namespace alert {
+class ClipGuard {
+    double windowStart=-1.0;
+    bool windowHot=false;
+    int streak=0;
+public:
+    void reset(){windowStart=-1.;windowHot=false;streak=0;}
+    bool feed(double seconds,float highest,bool valid) {
+        if(windowStart<0)windowStart=seconds;
+        bool fire=false;
+        while(seconds-windowStart>=.25) {
+            streak=windowHot?streak+1:0;
+            windowHot=false;
+            windowStart+=.25;
+            if(streak>=8){fire=true;streak=0;}
+        }
+        if(valid && std::isfinite(highest) && highest>=0.89125094f) windowHot=true;
+        return fire;
+    }
+};
+}

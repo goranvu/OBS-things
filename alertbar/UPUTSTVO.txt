@@ -1,22 +1,27 @@
-OBS Line In Alert Bar for Windows 10 / OBS Studio 31.x
-Close OBS. Copy the obs-linein-alert folder to C:\ProgramData\obs-studio\plugins\
-Enable Studio Mode. A thin 4px indicator appears directly below PROGRAM.
-Windows Recording endpoint named "Line In" is selected automatically.
-GREEN to -12 dBFS; YELLOW -12 to -3 dBFS; RED above -3 dBFS with flashing alert.
-No text, no controls, no slider, no automatic gain, no audio changes.
-If you have multiple Line In endpoints, edit OBS plugin_config/obs-linein-alert/settings.ini:
-[General]
-device_id=<Windows MMDevice endpoint ID>
-The Windows endpoint peak meter is pre-endpoint attenuation and cannot diagnose all analog pre-ADC clipping.
-This plugin does not interfere with the existing viewer-counter DLL.
-Tested only algorithmically, not on the physical sound card.
-
-VERSION 1.1: MUSIC DETECTION
-During MUSIC-LIKE audio (sustained harmonic and stable spectrum), strip automatically grows from 4 px to 13 px. Speech or silence returns it to 4 px.
-Music detection is a lightweight, locally computed heuristic on PCM samples, not a trained AI model; false positives and false negatives are possible, especially with choir, singing, and speech over music. If Windows WASAPI shared capture fails, stays 4 px; peak meter still works. The DLL does not change any audio levels.
-
-v1.2 Diagnostics: In OBS Help > Log Files > View Current Log, search [Line In Alert].
-Windows recording endpoints are listed, plus whether WASAPI PCM capture started.
-Every 8 seconds: frames, peak, tonalVotes, MUSIC/NOT_MUSIC. This allows troubleshooting.
-Detection was loosened for music with changing notes, though this is still an
-acoustic heuristic; it is not a pretrained AI speech/music classification model.
+OBS Line In Alert Bar v2.0 (Windows 10 / OBS Studio 31.x)
+===============================================================
+1. Zatvori OBS.
+2. Raspakuj paket i zameni fasciklu obs-linein-alert u
+   C:\ProgramData\obs-studio\plugins\
+3. Ukljuci Studio Mode. Ispod Program displeja pojavljuje se:
+   tanka (uvek 4px) VU traka i checkbox Auto desno.
+4. Checkbox Auto je podrazumevano ISKLJUCEN.
+5. Dok je ukljucen, ako audio-uzorci sa istog Windows Line In
+   imaju pik >= -1 dBFS u svakom od 8 uzastopnih intervala
+   po 250 ms (ukupno 2 sekunde), smanjuje se Windows Recording
+   Line In nivo za 3 dB. Maksimalno 18 dB po sesiji (jedno
+   pokretanje plugin kontrolera).
+6. Auto ne vraca sam nivo i ne menja zvucnike ni OBS mixer.
+7. Checkbox je onemogucen ako dodatni WASAPI PCM audio capture
+   ili Windows input level control nisu dostupni.
+8. Izbor Line In: samo jedan Windows Recording endpoint cije ime
+   sadrzi Line In ili postavi [General] device_id=... u
+   OBS plugin_config/obs-linein-alert/settings.ini.
+9. Prethodno automatsko prepoznavanje muzike je UKLONJENO.
+10. Hardware peak indikator moze biti PRE Windows digital gain
+    podesavanja; ne mora da se smanji iako je Recording nivo
+    u Windows-u smanjen. Ako signal klipuje PRE ADC-a, jedino
+    smanjivanje nivoa na izvoru/hardveru resava problem.
+11. Auto krece od ukljucenja checkbox-a (on ne pali automatski).
+12. Potvrdi na realnom Line In-u: OBS Help > Log Files >
+    View Current Log, trazi [Line In Alert].

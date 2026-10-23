@@ -37,10 +37,10 @@ jobs:
           if (!$test) { throw 'Tests missing' }
           & $test.FullName
           if ($LASTEXITCODE -ne 0) { throw 'Test failed' }
-          $musicTest=Get-ChildItem template/build_x64 -Recurse -Filter music-tests.exe -File | Select-Object -First 1
-          if (!$musicTest) { throw 'Music test missing' }
-          & $musicTest.FullName
-          if ($LASTEXITCODE -ne 0) { throw 'Music test failed' }
+          $gainTest=Get-ChildItem template/build_x64 -Recurse -Filter gain-tests.exe -File | Select-Object -First 1
+          if (!$gainTest) { throw 'Auto gain test missing' }
+          & $gainTest.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Auto gain test failed' }
           $dll=Get-ChildItem template/build_x64 -Recurse -Filter obs-linein-alert.dll -File | Select-Object -First 1
           if (!$dll) { throw 'DLL missing' }
           New-Item -ItemType Directory -Force package/obs-linein-alert/bin/64bit | Out-Null
