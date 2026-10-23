@@ -1,6 +1,7 @@
 #include "music-detector.hpp"
 #include "alert-logic.hpp"
-#include <cassert>
+#include <cstdlib>
+#include <iostream>
 #include <cmath>
 #include <iostream>
 #include <random>
@@ -15,15 +16,16 @@ void tone(music::MusicDetector&d,double sec){
 void silence(music::MusicDetector&d,double sec){
  for(int i=0;i<int(sec*16000);++i)d.consume(0);
 }
+void check(bool condition,const char*label){if(!condition){std::cerr<<"FAILED: "<<label<<"\n";std::exit(1);}}
 int main(){
  music::MusicDetector d;
- silence(d,2);assert(!d.music());
- tone(d,3);assert(d.music());
+ silence(d,2);check(!d.music(),"silence -> thin");
+ tone(d,3);check(d.music(),"chord -> thick");
  silence(d,1);assert(!d.music());
  music::MusicDetector noise;
  std::mt19937 mt(17);
- std::uniform_real_distribution<float> dist(-.15,.15);
+ std::uniform_real_distribution<float> dist(-.15f,.15f);
  for(int i=0;i<16000*3;++i)noise.consume(dist(mt));
- assert(!noise.music());
+ check(!noise.music(),"noise -> thin");
  std::cout<<"Music detector: sine chord -> music, silence/noise -> normal PASS\n";
 }

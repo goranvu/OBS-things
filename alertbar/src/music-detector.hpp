@@ -44,7 +44,7 @@ class MusicDetector {
     void frame() {
         double energy=0;
         for(float f:pcm)energy+=double(f)*f;
-        const float rms=std::sqrt(energy/N);
+        const float rms=static_cast<float>(std::sqrt(energy/N));
         if(rms<0.006f) {
             hasPrevious=false;
             ++silent;
