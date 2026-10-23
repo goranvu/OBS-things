@@ -45,7 +45,7 @@ class MusicDetector {
         double energy=0;
         for(float f:pcm)energy+=double(f)*f;
         const float rms=static_cast<float>(std::sqrt(energy/N));
-        if(rms<0.006f) {
+        if(rms<0.002f) {
             hasPrevious=false;
             ++silent;
             push(0,0);
@@ -82,8 +82,8 @@ class MusicDetector {
         // Preserve normalized amplitude spectrum between frames.
         previous=amps;hasPrevious=true;
         // These thresholds are deliberately conservative: default to narrow.
-        bool tonal=peakFraction>.095;
-        bool steady=similarity>.87;
+        bool tonal=peakFraction>.05;
+        bool steady=similarity>.72;
         push((tonal&&steady)?1:0,1);
     }
     void push(int musicVote,int nonSilent) {
@@ -94,9 +94,9 @@ class MusicDetector {
         int heard=0,good=0;
         for(int j=0;j<collected;++j){heard+=active[j];good+=votes[j];}
         // At least ~1.15 seconds of recent audio and stable music-like features.
-        if(!state && collected>=38 && heard>=35 && good>=28 && good*100>=heard*66)
+        if(!state && collected>=52 && heard>=49 && good>=50 && good*100>=heard*79)
             state=true;
-        if(state && (silent>=14 || (collected>=38 && good*100<heard*34)))
+        if(state && (silent>=14 || (collected>=52 && good*100<heard*42)))
             state=false;
     }
 public:
@@ -108,6 +108,11 @@ public:
             std::move(pcm.begin()+H,pcm.end(),pcm.begin());
             filled=H;
         }
+    }
+    int evidencePercent()const{
+        if(collected==0)return 0;
+        int sum=0;for(int j=0;j<collected;++j)sum+=votes[j];
+        return sum*100/collected;
     }
     bool music()const{return state;}
     void reset(){*this=MusicDetector{};}

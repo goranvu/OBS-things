@@ -14,6 +14,8 @@
 #include <atomic>
 #include <memory>
 #include <cstring>
+#include <chrono>
+#include <QByteArray>
 #include "music-detector.hpp"
 #include <QVBoxLayout>
 #include <QLabel>
@@ -94,17 +96,24 @@ public:
 protected:
     void run() override {
         HRESULT init=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
-        if(FAILED(init)){blog(LOG_WARNING,"[Line In Alert] Audio classifier COM initialization failed.");return;}
+        if(FAILED(init)){blog(LOG_WARNING,"[Line In Alert] Music audio: COM initialization FAILED (0x%08lx).",(unsigned long)init);return;}
         auto cleanup=[](){CoUninitialize();};
+        auto fail=[&](const char*stage,HRESULT hr){
+            blog(LOG_WARNING,"[Line In Alert] Music audio FAILED at %s: HRESULT 0x%08lx",stage,(unsigned long)hr);
+        };
         do {
             ComPtr<IMMDeviceEnumerator> en;
-            if(FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator),nullptr,CLSCTX_ALL,IID_PPV_ARGS(&en))))break;
+            HRESULT hr=CoCreateInstance(__uuidof(MMDeviceEnumerator),nullptr,CLSCTX_ALL,IID_PPV_ARGS(&en));
+            if(FAILED(hr)){fail("Enumerator",hr);break;}
             ComPtr<IMMDevice> d;
-            if(FAILED(en->GetDevice(deviceId.c_str(),&d)))break;
+            hr=en->GetDevice(deviceId.c_str(),&d);
+            if(FAILED(hr)){fail("GetDevice",hr);break;}
             ComPtr<IAudioClient> client;
-            if(FAILED(d->Activate(__uuidof(IAudioClient),CLSCTX_ALL,nullptr,reinterpret_cast<void**>(client.GetAddressOf()))))break;
+            hr=d->Activate(__uuidof(IAudioClient),CLSCTX_ALL,nullptr,reinterpret_cast<void**>(client.GetAddressOf()));
+            if(FAILED(hr)){fail("Activate IAudioClient",hr);break;}
             WAVEFORMATEX*wf=nullptr;
-            if(FAILED(client->GetMixFormat(&wf))||!wf)break;
+            hr=client->GetMixFormat(&wf);
+            if(FAILED(hr)||!wf){fail("GetMixFormat",hr);break;}
             int channels=wf->nChannels,bits=wf->wBitsPerSample;
             int rate=(int)wf->nSamplesPerSec,block=wf->nBlockAlign;
             bool fp=wf->wFormatTag==WAVE_FORMAT_IEEE_FLOAT;
@@ -121,24 +130,31 @@ protected:
                 blog(LOG_WARNING,"[Line In Alert] Unsupported input format for music detector.");
                 CoTaskMemFree(wf);break;
             }
-            HRESULT hr=client->Initialize(AUDCLNT_SHAREMODE_SHARED,0,1000000,0,wf,nullptr);
+            blog(LOG_INFO,"[Line In Alert] Music audio requested format: %d Hz, %d ch, %d bit, encoding %d",
+                rate,channels,bits,kind);
+            hr=client->Initialize(AUDCLNT_SHAREMODE_SHARED,0,1000000,0,wf,nullptr);
             CoTaskMemFree(wf);
             if(FAILED(hr)){
                 blog(LOG_WARNING,"[Line In Alert] WASAPI shared capture unavailable: 0x%08lx.",(unsigned long)hr);
                 break;
             }
             ComPtr<IAudioCaptureClient> capture;
-            if(FAILED(client->GetService(IID_PPV_ARGS(&capture))))break;
-            if(FAILED(client->Start()))break;
+            hr=client->GetService(IID_PPV_ARGS(&capture));
+            if(FAILED(hr)){fail("GetService Capture",hr);break;}
+            hr=client->Start();
+            if(FAILED(hr)){fail("Start recording",hr);break;}
             blog(LOG_INFO,"[Line In Alert] Music classifier started on Line In.");
             isReady=true;
             music::MusicDetector detector;
             double phase=0;
             auto lastPacket=std::chrono::steady_clock::now();
+            auto nextReport=lastPacket+std::chrono::seconds(8);
+            uint64_t totalFrames=0;
+            float maxAmplitude=0;
             while(!stopFlag) {
                 UINT32 packet=0;
                 HRESULT step=capture->GetNextPacketSize(&packet);
-                if(FAILED(step))break;
+                if(FAILED(step)){fail("GetNextPacketSize",step);break;}
                 if(packet==0) {
                     // Input disconnected or silent: never retain music state indefinitely.
                     if(std::chrono::steady_clock::now()-lastPacket>std::chrono::milliseconds(700)){
@@ -160,18 +176,29 @@ protected:
                                 mono+=sample(at+ch*stride,kind);
                             mono/=float(std::min(channels,2));
                         }
+                        maxAmplitude=std::max(maxAmplitude,std::fabs(mono));
                         phase+=16000.0/rate;
                         if(phase>=1.0){detector.consume(mono);phase-=1.0;}
                     }
                     capture->ReleaseBuffer(frames);
+                    totalFrames+=frames;
                     lastPacket=std::chrono::steady_clock::now();
                     isMusic=detector.music();
                     if(FAILED(capture->GetNextPacketSize(&packet))){packet=0;break;}
                 }while(packet>0&&!stopFlag);
+                auto now=std::chrono::steady_clock::now();
+                if(now>=nextReport){
+                    blog(LOG_INFO,"[Line In Alert] Music diagnostic: frames=%llu, peak=%.4f, tonalVotes=%d%%, classified=%s",
+                        (unsigned long long)totalFrames,maxAmplitude,detector.evidencePercent(),
+                        detector.music()?"MUSIC":"NOT_MUSIC");
+                    nextReport=now+std::chrono::seconds(8);
+                    totalFrames=0;maxAmplitude=0;
+                }
             }
             isMusic=false;isReady=false;
             client->Stop();
         }while(false);
+        isReady=false;isMusic=false;
         cleanup();
     }
 };
@@ -251,6 +278,8 @@ public:
                 PropVariantClear(&pv);
             }
             QString lowered=name.toLower();
+            QByteArray labelUtf8=name.toUtf8();
+            blog(LOG_INFO,"[Line In Alert] Windows recording endpoint: %s",labelUtf8.constData());
             if(lowered.contains("line in")||lowered.contains("line-in")||
                lowered.contains("line input")||lowered.contains("linijski ulaz"))
                 line.push_back(id);
@@ -263,7 +292,7 @@ public:
         }
         if(chosen.isEmpty()&&line.size()==1)chosen=line[0];
         if(chosen.isEmpty()){
-            if(!warned){blog(LOG_WARNING,"[Line In Alert] Need exactly one Windows Recording Line In.");warned=true;}
+            if(!warned){blog(LOG_WARNING,"[Line In Alert] Need exactly one Windows Recording Line In; none selected. Read endpoint names above.");warned=true;}
             return;
         }
         ComPtr<IMMDevice> newDev;
@@ -274,6 +303,7 @@ public:
         UINT count=0;
         if(FAILED(newMeter->GetMeteringChannelCount(&count))||count<1||count>32)return;
         dev=newDev;meter=newMeter;samples.assign(count,0.0f);
+        blog(LOG_INFO,"[Line In Alert] Starting PCM music classifier for selected Line In.");
         musicCapture=std::make_unique<MusicCapture>(chosen);
         musicCapture->start();
         blog(LOG_INFO,"[Line In Alert] Capture endpoint monitored (%u channels).",count);
@@ -317,7 +347,7 @@ extern "C" const char*obs_module_description(void){
 }
 extern "C" bool obs_module_load(void){
     obs_frontend_add_event_callback(eventCallback,nullptr);
-    blog(LOG_INFO,"[Line In Alert] Native plugin v1.1 loaded (music-aware 4/13 px).");return true;
+    blog(LOG_INFO,"[Line In Alert] Native plugin v1.2 loaded (music detection diagnostics).");return true;
 }
 extern "C" void obs_module_unload(void){
     obs_frontend_remove_event_callback(eventCallback,nullptr);
