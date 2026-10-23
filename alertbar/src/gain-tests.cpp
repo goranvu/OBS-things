@@ -22,7 +22,7 @@ int main(){
     // Missing packets (silence) must break sequence.
     alert::ClipGuard c;triggered=false;
     for(int i=0;i<300;i++){
-        bool packet=(i<40||i>55);
+        bool packet=(i<30||i>60);
         triggered|=c.feed(i*.02,.99f,packet);
         if(i==100)break;
     }
