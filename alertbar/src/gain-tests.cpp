@@ -2,40 +2,59 @@
 #include "adaptive-gain.hpp"
 #include <cstdlib>
 #include <iostream>
-void check(bool ok,const char*which){if(!ok){std::cerr<<"FAIL: "<<which<<"\n";std::exit(1);}}
+#include <cmath>
+void ck(bool ok,const char*name){if(!ok){std::cerr<<"FAIL "<<name<<"\n";std::exit(1);}}
 int main() {
-    alert::AdaptiveGain a;
-    for(int i=0;i<7;i++)check(a.feed(.98f,.20f,true)==alert::GainAction::None,"needs two full seconds");
-    check(a.feed(.98f,.20f,true)==alert::GainAction::Down3,"loud two seconds => -3dB");
-    alert::AdaptiveGain transient;
-    for(int i=0;i<70;++i) {
-        float pk=i==10?.99f:.35f;
-        check(transient.feed(pk,.08f,true)!=alert::GainAction::Down3,"single peak ignored");
-    }
+    alert::AdaptiveGain hot;
+    for(int i=0;i<7;++i) ck(hot.feed(.98f,.2f,true)==alert::GainAction::None,"2 sec hot guard");
+    ck(hot.feed(.98f,.2f,true)==alert::GainAction::Down3,"hot triggers down3");
     alert::AdaptiveGain quiet;
-    bool raised=false;
-    for(int i=0;i<70;++i) {
-        bool speaking=i%4!=0; // natural speech pauses
-        auto action=quiet.feed(speaking?.22f:0.f,speaking?.04f:0.f,true);
-        if(action==alert::GainAction::Up1)raised=true;
-        check(action!=alert::GainAction::Down3,"quiet never lowers");
+    int first=-1,count=0;
+    for(int i=0;i<60;i++) {
+        bool voice=i%4!=0;
+        float peak=voice ? ((i%3==0)? .017f : .007f) : .0f;
+        float rms=voice?.0015f:0;
+        auto act=quiet.feed(peak,rms,true);
+        if(act==alert::GainAction::Up2) {if(first<0)first=i; ++count;}
     }
-    check(raised,"quiet speech sustained => +1dB");
+    ck(first>=15 && first<=18,"quiet voice raises after four seconds");
+    ck(count>=2,"quiet voice can raise repeatedly");
+    alert::AdaptiveGain subtle;
+    bool rises=false;
+    for(int i=0;i<56;++i){
+        bool talk=i%5!=0;
+        auto act=subtle.feed(talk?.0045f:.0f,talk?.0009f:.0f,true);
+        if(act==alert::GainAction::Up2)rises=true;
+    }
+    ck(rises,"very quiet speech detectable");
     alert::AdaptiveGain silence;
     for(int i=0;i<90;++i)
-        check(silence.feed(0,0,true)==alert::GainAction::None,"silence never raises");
-    alert::AdaptiveGain roomNoise;
+        ck(silence.feed(0,0,true)==alert::GainAction::None,"never boost silence");
+    alert::AdaptiveGain noise;
     for(int i=0;i<90;++i)
-        check(roomNoise.feed(.011f,.003f,true)==alert::GainAction::None,"low noise never raises");
-    alert::AdaptiveGain medium;
+        ck(noise.feed(.011f,.003f,true)==alert::GainAction::None,"never boost steady noise");
+    alert::AdaptiveGain adequate;
     for(int i=0;i<90;++i)
-        check(medium.feed(.76f,.20f,true)==alert::GainAction::None,"adequate level unchanged");
-    alert::AdaptiveGain recovery;
-    for(int i=0;i<8;++i)recovery.feed(.98f,.2f,true);
-    int firstUp=-1;
-    for(int i=0;i<70;++i) {
-        if(recovery.feed(.21f,.035f,true)==alert::GainAction::Up1 && firstUp<0)firstUp=i;
+        ck(adequate.feed(.73f,.13f,true)==alert::GainAction::None,"no increase near strong level");
+    alert::AdaptiveGain transients;
+    for(int i=0;i<90;++i)
+        ck(transients.feed(i==9?.98f:.72f,.13f,true)!=alert::GainAction::Down3,"single peak not clipped");
+    alert::AdaptiveGain rebound;
+    for(int i=0;i<8;++i)rebound.feed(.99f,.2f,true);
+    int firstRecovery=-1;
+    for(int i=0;i<90;++i){
+        auto act=rebound.feed(i%4?.03f:0.f,i%4?.007f:0.f,true);
+        if(act==alert::GainAction::Up2 && firstRecovery<0)firstRecovery=i;
     }
-    check(firstUp>=23,"no rapid gain rebound");
-    std::cout<<"ADAPTIVE_GAIN_TEST_PASS\n";
+    ck(firstRecovery>=15,"no immediate rebound after music");
+    using alert::GainAction;
+    ck(std::abs(alert::requestedGainDb(GainAction::Up2,-10.f,-10.f,-60.f,12.f)-(-8.f))<.01f,
+       "increase above startup gain, regression fix");
+    ck(std::abs(alert::requestedGainDb(GainAction::Up2,7.f,-10.f,-60.f,12.f)-8.f)<.01f,
+       "+18 dB ceiling");
+    ck(std::abs(alert::requestedGainDb(GainAction::Up2,0.f,-10.f,-60.f,0.f))<.01f,
+       "respect Windows hardware maximum");
+    ck(std::abs(alert::requestedGainDb(GainAction::Down3,-26.f,-10.f,-60.f,12.f)-(-28.f))<.01f,
+       "-18dB floor");
+    std::cout<<"ADAPTIVE_GAIN_UP_DOWN_TEST_PASS\n";
 }

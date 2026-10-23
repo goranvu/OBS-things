@@ -165,7 +165,7 @@ protected:
             hr=client->Start();
             if(FAILED(hr)) {failed("WASAPI capture start",hr);break;}
             ready=true;
-            blog(LOG_INFO,"[Line In Alert] AUTO adaptive gain ready: DOWN -3 dB after 2s peaks >=90%%; UP +1 dB after sustained quiet sound, not silence. Cap -18 dB.");
+            blog(LOG_INFO,"[Line In Alert] AUTO adaptive gain v2.2 ready: DOWN 3 dB after 2s, UP 2 dB for quiet speech, safe startup +/-18 dB window.");
             alert::AdaptiveGain logic;
             using Clock=std::chrono::steady_clock;
             auto slotStart=Clock::now();
@@ -174,14 +174,15 @@ protected:
             double sumSquares=0;
             uint64_t samples=0;
             float slotPeak=0;
+            auto lastReport=Clock::now();
             while(!stopFlag.load()) {
                 const bool enabled=autoEnabled.load();
                 if(!enabled || !lastEnabled)logic.reset();
-                if(enabled && !lastEnabled && !baselineKnown) {
+                if(enabled && !baselineKnown) {
                     HRESULT getHr=volume->GetMasterVolumeLevel(&baselineDb);
                     if(SUCCEEDED(getHr)) {
                         baselineKnown=true;
-                        blog(LOG_INFO,"[Line In Alert] AUTO baseline: %.2f dB. Ceiling on recovery: this level.",baselineDb);
+                        blog(LOG_INFO,"[Line In Alert] AUTO initial Windows Line In: %.2f dB; adaptive gain can raise up to 18 dB above this (and Windows maximum).",baselineDb);
                     } else {
                         failed("Read initial Windows Line In gain",getHr);
                     }
@@ -225,23 +226,26 @@ protected:
                         float currentDb=0;
                         hr=volume->GetMasterVolumeLevel(&currentDb);
                         if(SUCCEEDED(hr)) {
-                            float requestedDb=currentDb;
-                            if(action==alert::GainAction::Down3) {
-                                requestedDb=std::max(std::max(low,baselineDb-18.f),currentDb-3.f);
-                            } else if(action==alert::GainAction::Up1) {
-                                requestedDb=std::min(std::min(high,baselineDb),currentDb+1.f);
-                            }
+                            const float requestedDb=alert::requestedGainDb(action,currentDb,baselineDb,low,high);
                             if(std::fabs(requestedDb-currentDb)>.05f) {
                                 hr=volume->SetMasterVolumeLevel(requestedDb,nullptr);
                                 if(SUCCEEDED(hr)) {
-                                    const int remaining=(int)std::lround(std::max(0.f,baselineDb-requestedDb));
+                                    const int remaining=(int)std::lround(baselineDb-requestedDb);
                                     reductionDb.store(remaining);
-                                    blog(LOG_INFO,"[Line In Alert] AUTO %s Line In: %.1f -> %.1f dB; peak %.3f, rms %.3f; below baseline %d dB.",
+                                    blog(LOG_INFO,"[Line In Alert] AUTO %s Line In: %.1f -> %.1f dB; peak %.3f, rms %.3f; difference from startup %+d dB.",
                                         action==alert::GainAction::Down3?"DOWN":"UP",
                                         currentDb,requestedDb,slotPeak,rms,remaining);
                                 }else failed("Set Windows Recording gain",hr);
                             }
                         } else failed("Get Windows Recording gain",hr);
+                    }
+                    if(enabled && now-lastReport>=std::chrono::seconds(8)) {
+                        float actualDb=0;
+                        if(SUCCEEDED(volume->GetMasterVolumeLevel(&actualDb))) {
+                            blog(LOG_INFO,"[Line In Alert] AUTO diagnostic: peak %.4f RMS %.5f inputLevel %.1f dB, start %.1f dB, UP ceiling %.1f dB.",
+                                slotPeak,rms,actualDb,baselineDb,std::min(high,baselineDb+18.f));
+                        }
+                        lastReport=now;
                     }
                     slotPeak=0;
                     sumSquares=0;
@@ -302,7 +306,7 @@ class Controller final:public QObject {
             check->setObjectName("obs_linein_auto_checkbox");
             check->setChecked(requestedAuto);
             check->setEnabled(worker&&worker->ready.load());
-            check->setToolTip("Auto: visoki pikovi 2 s = -3 dB; trajno tih govor = +1 dB postepeno. Ne preko pocetnog nivoa.");
+            check->setToolTip("Auto: prejaki pikovi 2 s = -3 dB; 4 s tihi govor = +2 dB. Maks. +18/-18 dB prema pocetnom nivou.");
             h->addWidget(check,0,Qt::AlignVCenter);
             QObject::connect(check.data(),&QCheckBox::toggled,this,[this](bool on){
                 requestedAuto=on;
@@ -443,7 +447,7 @@ extern "C" const char*obs_module_description(void) {
 }
 extern "C" bool obs_module_load(void) {
     obs_frontend_add_event_callback(frontendEvent,nullptr);
-    blog(LOG_INFO,"[Line In Alert] v2.1 peak bar + adaptive Auto Gain (down AND up).");
+    blog(LOG_INFO,"[Line In Alert] v2.2 peak bar + real bidirectional adaptive Auto Gain.");
     return true;
 }
 extern "C" void obs_module_unload(void) {
