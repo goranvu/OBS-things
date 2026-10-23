@@ -6,7 +6,8 @@
 #include <QLabel>
 #include <QMainWindow>
 #include <QRegularExpression>
-#include <QSlider>
+#include <QStatusBar>
+#include <QEvent>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QVBoxLayout>
@@ -156,43 +157,62 @@ inline Target target(QString input)
     return {QUrl(canonical + (id.isEmpty() ? QStringLiteral("?hl=en") : QStringLiteral("&hl=en"))), id, channelId};
 }
 
-// OBS 31+ creates an unnamed center widget inside previewLayout. Its direct
-// vertical layout contains the T-bar. Validate this structure before insertion.
-inline QVBoxLayout *centerLayout(QMainWindow *main)
+// Use OBS's existing left message frame so the counter remains at the far
+// left even though OBS places its full-width status widget as a permanent item.
+inline QHBoxLayout *statusLayout(QMainWindow *main)
 {
-    if (!main) return nullptr;
-    auto *preview = main->findChild<QHBoxLayout *>(QStringLiteral("previewLayout"));
-    if (!preview || preview->count() < 3) return nullptr;
-    for (int i = 1; i < preview->count() - 1; ++i) {
-        auto *widget = preview->itemAt(i)->widget();
-        auto *layout = widget ? qobject_cast<QVBoxLayout *>(widget->layout()) : nullptr;
-        if (!layout) continue;
-        for (int j = 0; j < layout->count(); ++j) {
-            auto *slider = qobject_cast<QSlider *>(layout->itemAt(j)->widget());
-            if (slider && slider->orientation() == Qt::Horizontal && slider->minimum() == 0 && slider->maximum() == 1023)
-                return layout;
-        }
-    }
-    return nullptr;
+    auto *bar = main ? main->findChild<QStatusBar *>() : nullptr;
+    auto *status = bar ? bar->findChild<QWidget *>(QStringLiteral("StatusBarWidget")) : nullptr;
+    if (!status) return nullptr;
+    auto *frame = status->findChild<QWidget *>(QStringLiteral("messageFrame"));
+    return qobject_cast<QHBoxLayout *>((frame ? frame : status)->layout());
 }
 
-inline QLabel *addLabel(QVBoxLayout *layout)
+class StatusCountLabel final : public QLabel {
+public:
+    explicit StatusCountLabel(QWidget *parent) : QLabel(QStringLiteral("\u2014"), parent) {}
+protected:
+    bool event(QEvent *event) override
+    {
+        if (event->type() == QEvent::ToolTip || event->type() == QEvent::StatusTip || event->type() == QEvent::WhatsThis) {
+            event->accept();
+            return true;
+        }
+        return QLabel::event(event);
+    }
+};
+
+inline void syncStatusFont(QLabel *label)
+{
+    if (!label) return;
+    auto *parent = label->parentWidget();
+    auto *reference = parent ? parent->findChild<QLabel *>(QStringLiteral("message")) : nullptr;
+    if (reference) {
+        if (label->font() != reference->font()) label->setFont(reference->font());
+        if (label->palette() != reference->palette()) label->setPalette(reference->palette());
+    }
+}
+
+inline QLabel *addStatusLabel(QHBoxLayout *layout)
 {
     auto *parent = layout ? layout->parentWidget() : nullptr;
     if (!parent) return nullptr;
-    if (auto *existing = parent->findChild<QLabel *>(QStringLiteral("youtubeCenterViewerCount"), Qt::FindDirectChildrenOnly)) return existing;
-    auto *label = new QLabel(QStringLiteral("\u2014"), parent);
-    label->setObjectName(QStringLiteral("youtubeCenterViewerCount"));
-    label->setAlignment(Qt::AlignCenter);
-    label->setContentsMargins(0, 12, 0, 6);
-    label->setMinimumHeight(54);
-    label->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    label->setStyleSheet(QStringLiteral("color: #ffff00; background: transparent; font-size: 32px; font-weight: bold;"));
+    if (auto *existing = parent->findChild<QLabel *>(QStringLiteral("youtubeStatusViewerCount"), Qt::FindDirectChildrenOnly)) return existing;
+    auto *label = new StatusCountLabel(parent);
+    label->setObjectName(QStringLiteral("youtubeStatusViewerCount"));
+    label->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    label->setContentsMargins(0, 0, 0, 0);
+    label->setMargin(0);
+    label->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Preferred);
+    label->setTextInteractionFlags(Qt::NoTextInteraction);
+    label->setFocusPolicy(Qt::NoFocus);
+    label->setToolTip(QString());
+    label->setStatusTip(QString());
+    label->setWhatsThis(QString());
     label->setAccessibleName(QStringLiteral("Broj gledalaca"));
-    // Keep OBS's leading controls and quick-transition indices intact.
-    int index = layout->count();
-    if (index > 0 && layout->itemAt(index - 1)->spacerItem()) --index;
-    layout->insertWidget(index, label);
+    syncStatusFont(label);
+    layout->insertWidget(0, label, 0, Qt::AlignLeft | Qt::AlignVCenter);
+    label->show();
     return label;
 }
 } // namespace counter

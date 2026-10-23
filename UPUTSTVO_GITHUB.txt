@@ -1,68 +1,34 @@
-VERZIJA 2.1 — ISPRAVKA TLS INITIALIZATION FAILED
+BROJ GLEDALACA U OBS STATUS BARU — VERZIJA 2.2
+================================================
 
-AZURIRANJE SA PRETHODNE VERZIJE
-Zatvori OBS, zameni bin/64bit/obs-fixed-counter.dll novim DLL-om iz ovog
-paketa i ponovo pokreni OBS. Zapamceni kanal ostaje sacuvan.
-Nisu potrebni dodatni TLS fajlovi niti reinstalacija OBS-a.
+Zatvori OBS i zameni stari obs-fixed-counter.dll ovim DLL-om.
+Paket raspakuj u:
+%ProgramData%\obs-studio\plugins\obs-fixed-counter\
 
-BROJ GLEDALACA ISPOD KOMANDI ZA TRANZICIJU U STUDIO MODU
-=====================================================
+DLL mora da zavrsi na:
+%ProgramData%\obs-studio\plugins\obs-fixed-counter\bin\64bit\obs-fixed-counter.dll
 
-Ovaj dodatak prikazuje zuti broj ispod tranzicija i T-bar klizaca,
-izmedju Preview i Program displeja. Broj je deo OBS interfejsa i nije
-deo scene niti se pojavljuje u snimku/strimu.
+Pokreni OBS. Broj je sada skroz levo u status baru, umesto izmedju
+Preview i Program panela. Vidljiv je i van Studio moda.
+Koristi font i boju postojecih statusnih podataka, bez velikih zutih cifara.
+Prikazuje samo broj, bez naslova i bez bilo kakvog hinta na prelazak misem.
+Status bar mora biti ukljucen u OBS-u da bi se broj video.
 
-INSTALACIJA (Windows x64)
-1. Zatvori OBS.
-2. Raspakuj paket tako da dobijes:
-   C:\ProgramData\obs-studio\plugins\obs-fixed-counter\bin\64bit\obs-fixed-counter.dll
-   C:\ProgramData\obs-studio\plugins\obs-fixed-counter\data\locale\en-US.ini
-   Ako vec imas stariji obs-fixed-counter dodatak, zameni njegov DLL.
-3. Pokreni OBS i ukljuci Studio Mode.
-4. Broj ce se pojaviti ispod komandi za tranziciju.
+Kanal menjas preko Tools / Alati > Broj gledalaca - kanal.
+Pri azuriranju se prethodno zapamceni kanal cuva.
+Unos moze biti @imeKanala, Channel ID, YouTube adresa kanala /live,
+ili link konkretnog prenosa.
 
-PODESAVANJE KANALA
-Tools / Alati > Broj gledalaca - kanal
-Unesi @imeKanala, Channel ID, adresu kanala /live ili link konkretnog prenosa.
-Nije potrebno praviti novi DLL pri promeni kanala.
-Podrazumevano se prati prvobitni kanal vracen na GitHub stranicu:
-UCQXPKDYp4U9JkTWAON_AhOw
+Provera ide svakih 5 sekundi kada YouTube odgovara na vreme.
+Pre pocetka prikazuje se broj ljudi koji cekaju, a tokom prenosa broj gledalaca.
+Ako broj nije dostupan, prikazuje se —; stvarnih nula se prikazuje kao 0.
+Poruke o greskama se nalaze u OBS logu, a ne u tooltipu broja.
 
-Primeri za test:
-@TheLodgeLive
-@BeogradCom
-https://www.youtube.com/@JonCohenOfficial/live
+HTTPS i dalje koristi Windows WinHTTP/Schannel, sa proverom sertifikata.
+Python, lokalni server i YouTube Data API kljuc nisu potrebni.
 
-Broj se proverava svakih 5 sekundi kada YouTube odgovara na vreme.
-Pre pocetka prenosa prikazuje se broj onih koji cekaju.
-Tokom prenosa prikazuje se broj trenutnih gledalaca.
-Ako broj nije dostupan, prenos je zavrsen ili je podatak zastareo,
-prikazuje se —. Stvarni broj 0 se prikazuje kao 0.
-Ako zahtev traje duze, ne pokrece se novi zahtev dok prethodni ne zavrsi.
-YouTube moze objavljivati promene broja sporije od provere na 5 sekundi.
+Windows automatski testovi proveravaju parser, status bar raspored,
+poravnanje, font, odsustvo tooltipa, promenu velicine prozora i HTTPS vezu.
+Stvarni prikaz u korisnikovom OBS-u treba proveriti nakon zamene DLL-a.
 
-Za ovaj dodatak ne trebaju Python, lokalni server niti YouTube Data API kljuc.
-HTTPS koristi Windows WinHTTP/Schannel, a ne Qt TLS dodatke.
-Provera sertifikata ostaje ukljucena; mreza radi u pozadinskoj niti.
-Stari obs_gledaoci.py mozes ukloniti ako si ga dodao; dodatak radi samostalno.
-GitHub YouTube panel moze ostati na svojoj javnoj adresi.
-Brojac ima sopstveni izbor kanala; ne cita izbor iz Browser Dock panela.
-
-PROVERE I OGRANICENJA
-DLL se prevodi na GitHub-ovom Windows racunaru. Automatski testovi proveravaju
-parser, cekanje/uzivo/nulu, nepodrzane podatke, izbor kanala i dodavanje,
-uklanjanje i ponovno dodavanje broja u Studio Mode raspored.
-Test rasporeda koristi Qt prozor istog oblika, a nije stvarna OBS sesija.
-Raspored je proveren prema izvornom kodu OBS 31.1.1. Ako novija verzija
-promeni unutrasnji raspored, dodatak ne ubacuje broj na nepoznato mesto;
-u OBS logu ostavlja poruku o neprepoznatom rasporedu.
-YouTube javni format moze da se promeni ili da zahteva prijavu/saglasnost.
-U tom slucaju prikazuje se — i treba prilagoditi citanje.
-
-UKLANJANJE
-Zatvori OBS i ukloni obs-fixed-counter.dll iz navedenog foldera.
-
-PREUZIMANJE SA GITHUB-A
-https://github.com/goranvu/OBS-things/actions
-Otvori najnoviji uspesan 'Napravi OBS DLL na GitHub-u' za ovu izmenu.
-U Artifacts preuzmi OBS-Broj-gledalaca-Windows.
+Uklanjanje: zatvori OBS i ukloni obs-fixed-counter.dll iz navedenog foldera.

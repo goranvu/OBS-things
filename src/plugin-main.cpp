@@ -1,4 +1,4 @@
-/* OBS Studio center viewer count. GPL-2.0-or-later. */
+/* OBS Studio status bar viewer count. GPL-2.0-or-later. */
 #include <obs-module.h>
 #include <obs-frontend-api.h>
 #include <util/bmem.h>
@@ -92,15 +92,15 @@ public:
 
     void attach()
     {
-        if (!obs_frontend_preview_program_mode_active() || label) return;
-        auto *layout = counter::centerLayout(main);
+        if (label) return;
+        auto *layout = counter::statusLayout(main);
         if (!layout) {
-            if (!warnedLayout) blog(LOG_WARNING, "[Center viewers] Center transition layout was not recognized; no UI was modified.");
+            if (!warnedLayout) blog(LOG_WARNING, "[Center viewers] Status bar layout was not recognized; no UI was modified.");
             warnedLayout = true;
             return;
         }
-        label = counter::addLabel(layout);
-        if (label) blog(LOG_INFO, "[Center viewers] Counter inserted below Studio Mode transitions.");
+        label = counter::addStatusLabel(layout);
+        if (label) blog(LOG_INFO, "[Center viewers] Counter inserted at the left of the status bar.");
         paint();
     }
 
@@ -109,7 +109,7 @@ public:
         if (!label) return;
         const bool fresh = updated > 0 && QDateTime::currentMSecsSinceEpoch() - updated < 15000;
         label->setText(fresh && !number.isEmpty() ? number : QStringLiteral("\u2014"));
-        label->setToolTip(status + QStringLiteral("\n") + source);
+        counter::syncStatusFont(label);
     }
 
     void publish(counter::Result result)
@@ -188,13 +188,13 @@ void onEvent(enum obs_frontend_event event, void *)
 
 extern "C" const char *obs_module_description(void)
 {
-    return "Live YouTube viewers or waiting viewers below Studio Mode transition controls.";
+    return "Live YouTube viewers or waiting viewers at the left of the OBS status bar.";
 }
 
 extern "C" bool obs_module_load(void)
 {
     obs_frontend_add_event_callback(onEvent, nullptr);
-    blog(LOG_INFO, "[Center viewers] Version 2.1 loaded; HTTPS uses Windows WinHTTP/Schannel (no Qt TLS backend).");
+    blog(LOG_INFO, "[Center viewers] Version 2.2 loaded; HTTPS uses Windows WinHTTP/Schannel (no Qt TLS backend).");
     return true;
 }
 

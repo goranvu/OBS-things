@@ -2,7 +2,7 @@
 #include "winhttp-client.hpp"
 #include <QApplication>
 #include <QPointer>
-#include <QPushButton>
+#include <QHelpEvent>
 
 static void check(bool value, const char *message)
 {
@@ -49,37 +49,56 @@ int main(int argc, char **argv)
     check(counter::target("https://youtube.com/@test/live?other=1").url.query() == "hl=en", "only canonical requests");
 
     QMainWindow main;
-    auto *central = new QWidget(&main);
-    main.setCentralWidget(central);
-    auto *preview = new QHBoxLayout(central);
-    preview->setObjectName("previewLayout");
-    preview->addWidget(new QWidget(central));
-    preview->addWidget(new QWidget(central));
-    check(!counter::centerLayout(&main), "no injection outside studio layout");
-    for (int pass = 0; pass < 3; ++pass) {
-        auto *options = new QWidget(central);
-        auto *layout = new QVBoxLayout(options);
-        layout->addStretch();
-        layout->addLayout(new QHBoxLayout());
-        layout->addLayout(new QHBoxLayout());
-        auto *slider = new QSlider(Qt::Horizontal, options);
-        slider->setRange(0, 1023);
-        layout->addWidget(slider);
-        layout->addStretch();
-        preview->insertWidget(1, options);
-        check(counter::centerLayout(&main) == layout, "transition layout detection");
-        QPointer<QLabel> label = counter::addLabel(layout);
-        check(label && layout->indexOf(label) == 4, "number below tbar");
-        check(counter::addLabel(layout) == label && layout->count() == 6, "no duplicate numbers");
-        auto *quick = new QPushButton(options);
-        quick->setProperty("id", 1);
-        layout->insertWidget(3, quick);
-        check(layout->indexOf(label) > layout->indexOf(slider), "new quick transitions stay before counter");
-        delete options;
-        check(label.isNull(), "counter removed safely with studio controls");
-        check(!counter::centerLayout(&main), "studio disabled");
-    }
-    qInfo("All parser, source validation and Studio Mode layout tests passed.");
+    check(!counter::statusLayout(&main), "no unrecognized status bar injection");
+    auto *bar = new QStatusBar(&main);
+    main.setStatusBar(bar);
+    auto *status = new QWidget(bar);
+    status->setObjectName("StatusBarWidget");
+    auto *row = new QHBoxLayout(status);
+    row->setContentsMargins(0, 0, 0, 0);
+    auto *frame = new QWidget(status);
+    frame->setObjectName("messageFrame");
+    auto *messages = new QHBoxLayout(frame);
+    messages->setContentsMargins(0, 0, 0, 0);
+    auto *message = new QLabel(frame);
+    message->setObjectName("message");
+    QFont normalFont = message->font();
+    normalFont.setPointSize(9);
+    normalFont.setWeight(QFont::Normal);
+    message->setFont(normalFont);
+    messages->addWidget(message, 1);
+    row->addWidget(frame, 1);
+    row->addWidget(new QLabel("CPU 1.0%", status));
+    bar->addPermanentWidget(status, 1);
+    check(counter::statusLayout(&main) == messages, "existing left message frame");
+    QPointer<QLabel> label = counter::addStatusLabel(messages);
+    check(label && messages->indexOf(label) == 0, "counter is first item on left");
+    check(counter::addStatusLabel(messages) == label && messages->count() == 2, "no duplicate labels");
+    check(label->alignment().testFlag(Qt::AlignLeft), "left aligned");
+    check(label->font() == message->font(), "same font as native status text");
+    check(label->styleSheet().isEmpty(), "no custom color or large bold font");
+    check(label->toolTip().isEmpty() && label->statusTip().isEmpty() && label->whatsThis().isEmpty(), "no hover hint properties");
+    QHelpEvent help(QEvent::ToolTip, QPoint(1, 1), QPoint(1, 1));
+    check(QApplication::sendEvent(label, &help) && help.isAccepted(), "tooltip event consumed");
+    normalFont.setPointSize(11);
+    message->setFont(normalFont);
+    counter::syncStatusFont(label);
+    check(label->font() == message->font(), "follows status font change");
+    label->setText("217");
+    message->setText("Recording started");
+    main.resize(900, 600);
+    main.show();
+    app.processEvents();
+    check(label->text() == "217" && label->isVisible(), "number remains during status messages");
+    check(label->x() < message->x(), "number stays left of existing message");
+    main.resize(700, 400);
+    app.processEvents();
+    check(label->isVisible(), "counter survives resizing");
+    delete label.data();
+    check(label.isNull() && messages->count() == 1, "clean plugin unload");
+    label = counter::addStatusLabel(messages);
+    check(label && messages->indexOf(label) == 0, "counter reattachment");
+    qInfo("All parser, source validation and status bar UI tests passed.");
     std::atomic_bool cancelled{true};
     check(!native_http::fetch(QUrl("https://example.com/"), cancelled).error.isEmpty(), "cancelled request");
     cancelled.store(false);

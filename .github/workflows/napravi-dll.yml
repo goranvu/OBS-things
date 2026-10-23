@@ -39,7 +39,7 @@ jobs:
         working-directory: template
         run: cmake --build --preset windows-x64 --config RelWithDebInfo
 
-      - name: Proveri parser i Studio Mode raspored
+      - name: Proveri parser, status bar i HTTPS
         shell: pwsh
         run: |
           $qt = Get-ChildItem template/.deps -Recurse -Filter Qt6Core.dll -File | Select-Object -First 1
