@@ -1,4 +1,5 @@
 #include "counter-core.hpp"
+#include "winhttp-client.hpp"
 #include <QApplication>
 #include <QPointer>
 #include <QPushButton>
@@ -79,5 +80,16 @@ int main(int argc, char **argv)
         check(!counter::centerLayout(&main), "studio disabled");
     }
     qInfo("All parser, source validation and Studio Mode layout tests passed.");
+    std::atomic_bool cancelled{true};
+    check(!native_http::fetch(QUrl("https://example.com/"), cancelled).error.isEmpty(), "cancelled request");
+    cancelled.store(false);
+    check(!native_http::fetch(QUrl("http://example.com/"), cancelled).error.isEmpty(), "HTTPS required");
+    const QString smokeUrl = qEnvironmentVariable("COUNTER_HTTPS_SMOKE_URL");
+    if (!smokeUrl.isEmpty()) {
+        const auto response = native_http::fetch(QUrl(smokeUrl), cancelled);
+        if (!response.error.isEmpty()) qFatal("Windows HTTPS smoke test failed: %s", qPrintable(response.error));
+        check(!response.body.isEmpty(), "real Windows HTTPS response");
+        qInfo("Windows HTTPS smoke test passed without Qt Network/TLS.");
+    }
     return 0;
 }

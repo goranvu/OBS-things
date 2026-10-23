@@ -3,6 +3,7 @@
 #include <obs-frontend-api.h>
 #include <util/bmem.h>
 #include "counter-core.hpp"
+#include "winhttp-client.hpp"
 #include <QAction>
 #include <QDateTime>
 #include <QDir>
@@ -10,11 +11,9 @@
 #include <QInputDialog>
 #include <QMessageBox>
 #include <QLineEdit>
-#include <QNetworkAccessManager>
-#include <QNetworkReply>
-#include <QNetworkRequest>
 #include <QPointer>
 #include <QSettings>
+#include <QThread>
 #include <QTimer>
 
 OBS_DECLARE_MODULE()
@@ -22,21 +21,38 @@ OBS_MODULE_USE_DEFAULT_LOCALE("obs-fixed-counter", "en-US")
 
 namespace {
 constexpr auto DefaultChannel = "UCQXPKDYp4U9JkTWAON_AhOw";
-constexpr qint64 MaxResponse = 8 * 1024 * 1024;
+
+class FetchThread final : public QThread {
+    counter::Target target;
+public:
+    std::atomic_bool cancelled{false};
+    const quint64 generation;
+    counter::Result result;
+    FetchThread(counter::Target selected, quint64 version, QObject *parent)
+        : QThread(parent), target(selected), generation(version) {}
+protected:
+    void run() override
+    {
+        const auto reply = native_http::fetch(target.url, cancelled);
+        if (!reply.error.isEmpty()) result = {{}, QStringLiteral("Citanje YouTube-a nije uspelo: ") + reply.error};
+        else result = counter::parse(QString::fromUtf8(reply.body), target.video, target.channel);
+    }
+};
 
 class Controller final : public QObject {
     QMainWindow *main;
-    QNetworkAccessManager network;
     QTimer pollTimer, uiTimer;
-    QPointer<QNetworkReply> pending;
+    QPointer<FetchThread> pending;
     QPointer<QLabel> label;
     QPointer<QAction> action;
     counter::Target selected;
     QString source, configPath, number, status;
     qint64 updated = 0;
     bool warnedLayout = false;
+    quint64 generation = 0;
+    bool refreshAfterCancel = false;
 public:
-    explicit Controller(QMainWindow *window) : QObject(window), main(window), network(this)
+    explicit Controller(QMainWindow *window) : QObject(window), main(window)
     {
         char *path = obs_module_config_path("settings.ini");
         if (path) {
@@ -63,7 +79,12 @@ public:
         pollTimer.stop(); uiTimer.stop();
         if (pending) {
             QObject::disconnect(pending.data(), nullptr, this, nullptr);
-            pending->abort();
+            pending->cancelled.store(true);
+            // Cancellation wakes the worker within 100ms. Its native request
+            // must finish closing before the DLL can safely be unloaded.
+            pending->wait();
+            delete pending.data();
+            pending.clear();
         }
         delete label.data();
         delete action.data();
@@ -106,33 +127,15 @@ public:
     void request()
     {
         if (pending || selected.url.isEmpty()) return;
-        QNetworkRequest request(selected.url);
-        request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Mozilla/5.0 OBSViewerCounter/2.0"));
-        request.setRawHeader("Accept-Language", "en-US,en;q=0.9");
-        request.setRawHeader("Cache-Control", "no-cache");
-        request.setRawHeader("Pragma", "no-cache");
-        request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
-        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-        request.setTransferTimeout(8000);
-        auto *reply = network.get(request);
-        pending = reply;
-        const counter::Target requested = selected;
-        // The transfer timeout measures idle time; this is an absolute deadline.
-        QTimer::singleShot(8000, reply, [reply]() { if (reply->isRunning()) reply->abort(); });
-        QObject::connect(reply, &QNetworkReply::readyRead, this, [reply]() {
-            if (reply->bytesAvailable() > MaxResponse) reply->abort();
-        });
-        QObject::connect(reply, &QNetworkReply::finished, this, [this, reply, requested]() {
+        auto *worker = new FetchThread(selected, generation, this);
+        pending = worker;
+        QObject::connect(worker, &QThread::finished, this, [this, worker]() {
             pending.clear();
-            const QString host = reply->url().host().toLower();
-            const auto body = reply->read(MaxResponse + 1);
-            if (reply->error() != QNetworkReply::NoError) publish({{}, QStringLiteral("Citanje YouTube-a nije uspelo: ") + reply->errorString()});
-            else if (host != QStringLiteral("www.youtube.com") && host != QStringLiteral("youtube.com") && host != QStringLiteral("m.youtube.com"))
-                publish({{}, QStringLiteral("YouTube trazi saglasnost ili prijavu.")});
-            else if (body.size() > MaxResponse) publish({{}, QStringLiteral("YouTube odgovor je prevelik.")});
-            else publish(counter::parse(QString::fromUtf8(body), requested.video, requested.channel));
-            reply->deleteLater();
+            if (worker->generation == generation) publish(worker->result);
+            worker->deleteLater();
+            if (refreshAfterCancel) { refreshAfterCancel = false; request(); }
         });
+        worker->start(QThread::LowPriority);
     }
 
     void settings()
@@ -145,9 +148,10 @@ public:
         const auto target = counter::target(value);
         if (target.url.isEmpty()) { QMessageBox::warning(main, QStringLiteral("Broj gledalaca"), QStringLiteral("Unesi ispravan YouTube kanal ili link prenosa.")); return; }
         if (pending) {
-            QObject::disconnect(pending.data(), nullptr, this, nullptr);
-            pending->abort(); pending->deleteLater(); pending.clear();
+            pending->cancelled.store(true);
+            refreshAfterCancel = true;
         }
+        ++generation;
         source = value; selected = target;
         if (!configPath.isEmpty()) QSettings(configPath, QSettings::IniFormat).setValue(QStringLiteral("source"), source);
         publish({{}, QStringLiteral("Citanje novog kanala...")});
@@ -190,7 +194,7 @@ extern "C" const char *obs_module_description(void)
 extern "C" bool obs_module_load(void)
 {
     obs_frontend_add_event_callback(onEvent, nullptr);
-    blog(LOG_INFO, "[Center viewers] Plugin loaded; awaiting OBS frontend.");
+    blog(LOG_INFO, "[Center viewers] Version 2.1 loaded; HTTPS uses Windows WinHTTP/Schannel (no Qt TLS backend).");
     return true;
 }
 

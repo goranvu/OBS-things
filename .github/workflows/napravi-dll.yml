@@ -51,6 +51,7 @@ jobs:
           $env:QT_QPA_PLATFORM = 'windows'
           $test = Get-ChildItem template/build_x64 -Recurse -Filter counter-tests.exe -File | Select-Object -First 1
           if (!$test) { throw 'counter-tests.exe nije pronadjen' }
+          $env:COUNTER_HTTPS_SMOKE_URL = 'https://example.com/'
           & $test.FullName
           if ($LASTEXITCODE -ne 0) { throw 'Testovi nisu prosli' }
 
@@ -59,6 +60,13 @@ jobs:
         run: |
           $dll = Get-ChildItem template/build_x64 -Recurse -Filter obs-fixed-counter.dll -File | Select-Object -First 1
           if (!$dll) { throw 'Kompilacija nije proizvela obs-fixed-counter.dll' }
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vsPath/VC/Tools/MSVC/*/bin/Hostx64/x64/dumpbin.exe" -File | Select-Object -First 1
+          if (!$dumpbin) { throw 'dumpbin nije pronadjen' }
+          $imports = (& $dumpbin.FullName /dependents $dll.FullName | Out-String)
+          Write-Output $imports
+          if ($imports -match 'Qt6Network.dll|libssl|libcrypto') { throw 'DLL jos zavisi od dodatnog TLS runtime-a' }
+          if ($imports -notmatch 'WINHTTP.dll') { throw 'DLL ne koristi Windows HTTPS' }
           New-Item -ItemType Directory -Force paket/obs-fixed-counter/bin/64bit | Out-Null
           New-Item -ItemType Directory -Force paket/obs-fixed-counter/data/locale | Out-Null
           Copy-Item $dll.FullName paket/obs-fixed-counter/bin/64bit/obs-fixed-counter.dll

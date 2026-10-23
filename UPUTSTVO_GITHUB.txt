@@ -1,3 +1,10 @@
+VERZIJA 2.1 — ISPRAVKA TLS INITIALIZATION FAILED
+
+AZURIRANJE SA PRETHODNE VERZIJE
+Zatvori OBS, zameni bin/64bit/obs-fixed-counter.dll novim DLL-om iz ovog
+paketa i ponovo pokreni OBS. Zapamceni kanal ostaje sacuvan.
+Nisu potrebni dodatni TLS fajlovi niti reinstalacija OBS-a.
+
 BROJ GLEDALACA ISPOD KOMANDI ZA TRANZICIJU U STUDIO MODU
 =====================================================
 
@@ -35,6 +42,8 @@ Ako zahtev traje duze, ne pokrece se novi zahtev dok prethodni ne zavrsi.
 YouTube moze objavljivati promene broja sporije od provere na 5 sekundi.
 
 Za ovaj dodatak ne trebaju Python, lokalni server niti YouTube Data API kljuc.
+HTTPS koristi Windows WinHTTP/Schannel, a ne Qt TLS dodatke.
+Provera sertifikata ostaje ukljucena; mreza radi u pozadinskoj niti.
 Stari obs_gledaoci.py mozes ukloniti ako si ga dodao; dodatak radi samostalno.
 GitHub YouTube panel moze ostati na svojoj javnoj adresi.
 Brojac ima sopstveni izbor kanala; ne cita izbor iz Browser Dock panela.
