@@ -1,27 +1,26 @@
-OBS Line In Alert Bar v2.0 (Windows 10 / OBS Studio 31.x)
-===============================================================
-1. Zatvori OBS.
-2. Raspakuj paket i zameni fasciklu obs-linein-alert u
-   C:\ProgramData\obs-studio\plugins\
-3. Ukljuci Studio Mode. Ispod Program displeja pojavljuje se:
-   tanka (uvek 4px) VU traka i checkbox Auto desno.
-4. Checkbox Auto je podrazumevano ISKLJUCEN.
-5. Dok je ukljucen, ako audio-uzorci sa istog Windows Line In
-   imaju pik >= -1 dBFS u svakom od 8 uzastopnih intervala
-   po 250 ms (ukupno 2 sekunde), smanjuje se Windows Recording
-   Line In nivo za 3 dB. Maksimalno 18 dB po sesiji (jedno
-   pokretanje plugin kontrolera).
-6. Auto ne vraca sam nivo i ne menja zvucnike ni OBS mixer.
-7. Checkbox je onemogucen ako dodatni WASAPI PCM audio capture
-   ili Windows input level control nisu dostupni.
-8. Izbor Line In: samo jedan Windows Recording endpoint cije ime
-   sadrzi Line In ili postavi [General] device_id=... u
-   OBS plugin_config/obs-linein-alert/settings.ini.
-9. Prethodno automatsko prepoznavanje muzike je UKLONJENO.
-10. Hardware peak indikator moze biti PRE Windows digital gain
-    podesavanja; ne mora da se smanji iako je Recording nivo
-    u Windows-u smanjen. Ako signal klipuje PRE ADC-a, jedino
-    smanjivanje nivoa na izvoru/hardveru resava problem.
-11. Auto krece od ukljucenja checkbox-a (on ne pali automatski).
-12. Potvrdi na realnom Line In-u: OBS Help > Log Files >
-    View Current Log, trazi [Line In Alert].
+OBS Line In Alert Bar v2.1 – adaptive Auto gain, Windows / OBS 31.x
+=======================================================================
+Close OBS. Copy the obs-linein-alert folder from the ZIP to:
+C:\ProgramData\obs-studio\plugins\
+Enable Studio Mode. Under Program view: fixed 4 px indicator and checkbox Auto.
+AUTO is initially OFF. Turn it on to let the DLL adjust WINDOWS RECORDING
+Line In input level (not OBS mixer or loudspeaker output).
+
+- If the actual captured PCM signal reaches >= 89% full scale in each of
+  8 consecutive 250 ms windows (2 seconds), gain DECREASES by 3 dB.
+- After sustained QUITER signal, at least ~2.5s of audible audio in a
+  sliding 6s window, most of its peaks <= 65%, gain INCREASES 1 dB.
+  A further increase requires 3 seconds, limiting pumping.
+- SILENCE and low level background hiss do not trigger increase.
+- Recovery ceiling is the actual Windows Line In level at the FIRST time
+  Auto is turned on in that plugin worker; it never increases past that.
+- Automatic reduction limited to 18 dB BELOW that initial level.
+- No classification of voice/music. This only measures PCM amplitude.
+- If a hardware device clips BEFORE A/D conversion, Windows-level
+  software attenuation cannot eliminate existing distortion.
+- Some Windows capture interfaces read a signal that is not affected
+  by Recording endpoint volume; verify on your actual device.
+- OBS Help > Log Files > View Current Log: "[Line In Alert]" shows
+  each DOWN/UP gain adjustment.
+
+Previously installed viewer-count plugin unchanged.

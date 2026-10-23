@@ -35,6 +35,7 @@
 #include <string>
 #include <vector>
 #include "alert-logic.hpp"
+#include "adaptive-gain.hpp"
 
 using Microsoft::WRL::ComPtr;
 OBS_DECLARE_MODULE()
@@ -164,56 +165,88 @@ protected:
             hr=client->Start();
             if(FAILED(hr)) {failed("WASAPI capture start",hr);break;}
             ready=true;
-            blog(LOG_INFO,"[Line In Alert] AUTO gain ready. Trigger: sustained -1 dBFS over 2 s. Step: -3 dB, cap -18 dB.");
-            alert::ClipGuard guard;
-            const auto started=std::chrono::steady_clock::now();
-            auto lastPacket=started;
-            auto lastEnable=autoEnabled.load();
+            blog(LOG_INFO,"[Line In Alert] AUTO adaptive gain ready: DOWN -3 dB after 2s peaks >=90%%; UP +1 dB after sustained quiet sound, not silence. Cap -18 dB.");
+            alert::AdaptiveGain logic;
+            using Clock=std::chrono::steady_clock;
+            auto slotStart=Clock::now();
+            bool lastEnabled=false, baselineKnown=false;
+            float baselineDb=0;
+            double sumSquares=0;
+            uint64_t samples=0;
+            float slotPeak=0;
             while(!stopFlag.load()) {
-                bool enabled=autoEnabled.load();
-                if(!enabled||enabled!=lastEnable)guard.reset();
-                lastEnable=enabled;
-                float highest=0;
-                bool framesSeen=false;
+                const bool enabled=autoEnabled.load();
+                if(!enabled || !lastEnabled)logic.reset();
+                if(enabled && !lastEnabled && !baselineKnown) {
+                    HRESULT getHr=volume->GetMasterVolumeLevel(&baselineDb);
+                    if(SUCCEEDED(getHr)) {
+                        baselineKnown=true;
+                        blog(LOG_INFO,"[Line In Alert] AUTO baseline: %.2f dB. Ceiling on recovery: this level.",baselineDb);
+                    } else {
+                        failed("Read initial Windows Line In gain",getHr);
+                    }
+                }
+                lastEnabled=enabled;
                 UINT32 packet=0;
                 hr=capture->GetNextPacketSize(&packet);
                 if(FAILED(hr)) {failed("WASAPI next packet",hr);break;}
                 while(packet>0&&!stopFlag.load()) {
-                    BYTE*buffer=nullptr;UINT32 frameCount=0;DWORD flags=0;
+                    BYTE*buffer=nullptr;
+                    UINT32 frameCount=0;
+                    DWORD flags=0;
                     hr=capture->GetBuffer(&buffer,&frameCount,&flags,nullptr,nullptr);
                     if(FAILED(hr)) {failed("WASAPI read",hr);break;}
-                    if(frameCount>0)framesSeen=true;
                     if(buffer && !(flags&AUDCLNT_BUFFERFLAGS_SILENT)) {
                         const int bytesPerSample=bits/8;
                         for(UINT32 f=0;f<frameCount;++f) {
                             const BYTE*frame=buffer+(size_t)f*block;
                             for(int ch=0;ch<channels;++ch) {
-                                highest=std::max(highest,absoluteSample(frame+ch*bytesPerSample,kind));
+                                const float amplitude=absoluteSample(frame+ch*bytesPerSample,kind);
+                                slotPeak=std::max(slotPeak,amplitude);
+                                sumSquares+=double(amplitude)*amplitude;
+                                ++samples;
                             }
                         }
+                    } else {
+                        samples+=(uint64_t)frameCount*channels; // silent PCM frames
                     }
                     capture->ReleaseBuffer(frameCount);
-                    lastPacket=std::chrono::steady_clock::now();
-                    if(FAILED(hr))break;
                     hr=capture->GetNextPacketSize(&packet);
                     if(FAILED(hr)) {failed("WASAPI next packet",hr);break;}
                 }
                 if(FAILED(hr))break;
-                const auto now=std::chrono::steady_clock::now();
-                const double seconds=std::chrono::duration<double>(now-started).count();
-                const bool recent=now-lastPacket<std::chrono::milliseconds(500);
-                if(enabled && guard.feed(seconds,highest,framesSeen&&recent) && reductionDb.load()<18) {
-                    float db=0;
-                    if(SUCCEEDED(volume->GetMasterVolumeLevel(&db))) {
-                        // Only lower volume on *the selected capture endpoint*.
-                        const float destination=std::max(low,db-3.0f);
-                        if(destination<db-0.01f &&
-                           SUCCEEDED(volume->SetMasterVolumeLevel(destination,nullptr))) {
-                            int total=reductionDb.fetch_add(3)+3;
-                            blog(LOG_INFO,"[Line In Alert] AUTO lowered Windows Recording Line In by 3 dB (session total %d dB).",total);
-                        }
+                const auto now=Clock::now();
+                if(now-slotStart>=std::chrono::milliseconds(250)) {
+                    const float rms=samples?static_cast<float>(std::sqrt(sumSquares/double(samples))):0.f;
+                    // Read independent 250 ms intervals. Never raise when silent.
+                    alert::GainAction action=enabled&&baselineKnown
+                        ?logic.feed(slotPeak,rms,samples!=0):alert::GainAction::None;
+                    if(action!=alert::GainAction::None) {
+                        float currentDb=0;
+                        hr=volume->GetMasterVolumeLevel(&currentDb);
+                        if(SUCCEEDED(hr)) {
+                            float requestedDb=currentDb;
+                            if(action==alert::GainAction::Down3) {
+                                requestedDb=std::max(std::max(low,baselineDb-18.f),currentDb-3.f);
+                            } else if(action==alert::GainAction::Up1) {
+                                requestedDb=std::min(std::min(high,baselineDb),currentDb+1.f);
+                            }
+                            if(std::fabs(requestedDb-currentDb)>.05f) {
+                                hr=volume->SetMasterVolumeLevel(requestedDb,nullptr);
+                                if(SUCCEEDED(hr)) {
+                                    const int remaining=(int)std::lround(std::max(0.f,baselineDb-requestedDb));
+                                    reductionDb.store(remaining);
+                                    blog(LOG_INFO,"[Line In Alert] AUTO %s Line In: %.1f -> %.1f dB; peak %.3f, rms %.3f; below baseline %d dB.",
+                                        action==alert::GainAction::Down3?"DOWN":"UP",
+                                        currentDb,requestedDb,slotPeak,rms,remaining);
+                                }else failed("Set Windows Recording gain",hr);
+                            }
+                        } else failed("Get Windows Recording gain",hr);
                     }
-                    guard.reset(); // another full 2 s needed before next reduction
+                    slotPeak=0;
+                    sumSquares=0;
+                    samples=0;
+                    slotStart=now;
                 }
                 QThread::msleep(20);
             }
@@ -269,7 +302,7 @@ class Controller final:public QObject {
             check->setObjectName("obs_linein_auto_checkbox");
             check->setChecked(requestedAuto);
             check->setEnabled(worker&&worker->ready.load());
-            check->setToolTip("Posle 2 s ponovljenih visokih pikova (preko -1 dBFS), smanjuje Windows Line In za 3 dB. Do -18 dB.");
+            check->setToolTip("Auto: visoki pikovi 2 s = -3 dB; trajno tih govor = +1 dB postepeno. Ne preko pocetnog nivoa.");
             h->addWidget(check,0,Qt::AlignVCenter);
             QObject::connect(check.data(),&QCheckBox::toggled,this,[this](bool on){
                 requestedAuto=on;
@@ -410,7 +443,7 @@ extern "C" const char*obs_module_description(void) {
 }
 extern "C" bool obs_module_load(void) {
     obs_frontend_add_event_callback(frontendEvent,nullptr);
-    blog(LOG_INFO,"[Line In Alert] v2.0 peak bar + user controlled Auto Gain.");
+    blog(LOG_INFO,"[Line In Alert] v2.1 peak bar + adaptive Auto Gain (down AND up).");
     return true;
 }
 extern "C" void obs_module_unload(void) {
