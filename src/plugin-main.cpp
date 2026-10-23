@@ -1,139 +1,201 @@
-/*
- * OBS 354 - fixed-height viewer counter dock (Windows / OBS Studio 30+)
- * Copyright (c) 2026. Released under GNU GPL v2 or later.
- *
- * This creates a native Qt dock, not an OBS video source.
- * Its number area is 34px high, with a visible "Broj gledalaca" title bar.
- * The X and floating controls are disabled.
- */
-
+/* OBS Studio center viewer count. GPL-2.0-or-later. */
 #include <obs-module.h>
 #include <obs-frontend-api.h>
-
-#include <QDockWidget>
-#include <QFont>
-#include <QLabel>
-#include <QMainWindow>
+#include <util/bmem.h>
+#include "counter-core.hpp"
+#include <QAction>
+#include <QDateTime>
+#include <QDir>
+#include <QFileInfo>
+#include <QInputDialog>
+#include <QMessageBox>
+#include <QLineEdit>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QPointer>
-#include <QSize>
-#include <QSizePolicy>
+#include <QSettings>
 #include <QTimer>
-#include <QVBoxLayout>
-#include <QWidget>
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs-fixed-counter", "en-US")
 
 namespace {
-constexpr auto DockId = "obs-fixed-counter-354";
-constexpr int ContentHeight = 40;
-QPointer<QDockWidget> ourDock;
-bool obsIsExiting = false;
+constexpr auto DefaultChannel = "UCQXPKDYp4U9JkTWAON_AhOw";
+constexpr qint64 MaxResponse = 8 * 1024 * 1024;
 
-class NumberWidget final : public QWidget {
+class Controller final : public QObject {
+    QMainWindow *main;
+    QNetworkAccessManager network;
+    QTimer pollTimer, uiTimer;
+    QPointer<QNetworkReply> pending;
+    QPointer<QLabel> label;
+    QPointer<QAction> action;
+    counter::Target selected;
+    QString source, configPath, number, status;
+    qint64 updated = 0;
+    bool warnedLayout = false;
 public:
-    explicit NumberWidget(QWidget *parent = nullptr) : QWidget(parent)
+    explicit Controller(QMainWindow *window) : QObject(window), main(window), network(this)
     {
-        setFixedHeight(ContentHeight); // Header height is managed separately by Qt.
-        setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-
-        auto *layout = new QVBoxLayout(this);
-        layout->setContentsMargins(0, 0, 0, 0);
-        layout->setSpacing(0);
-
-        auto *number = new QLabel(QStringLiteral("354"), this);
-        number->setAlignment(Qt::AlignCenter);
-        QFont numberFont = number->font();
-        numberFont.setPixelSize(24); // actual pixel size, not typographic points
-        numberFont.setWeight(QFont::Normal);
-        number->setFont(numberFont);
-        number->setStyleSheet(QStringLiteral("color: #9BCDE5; background: transparent;"));
-        layout->addWidget(number);
+        char *path = obs_module_config_path("settings.ini");
+        if (path) {
+            configPath = QString::fromUtf8(path);
+            bfree(path);
+            QDir().mkpath(QFileInfo(configPath).absolutePath());
+        }
+        source = QString::fromLatin1(DefaultChannel);
+        if (!configPath.isEmpty()) source = QSettings(configPath, QSettings::IniFormat).value(QStringLiteral("source"), source).toString();
+        selected = counter::target(source);
+        if (selected.url.isEmpty()) { source = QString::fromLatin1(DefaultChannel); selected = counter::target(source); }
+        action = static_cast<QAction *>(obs_frontend_add_tools_menu_qaction("Broj gledalaca - kanal"));
+        if (action) QObject::connect(action.data(), &QAction::triggered, this, [this]() { settings(); });
+        QObject::connect(&pollTimer, &QTimer::timeout, this, [this]() { request(); });
+        QObject::connect(&uiTimer, &QTimer::timeout, this, [this]() { attach(); paint(); });
+        pollTimer.start(5000);
+        uiTimer.start(1000);
+        attach();
+        request();
     }
 
-    QSize sizeHint() const override { return QSize(190, ContentHeight); }
+    ~Controller() override
+    {
+        pollTimer.stop(); uiTimer.stop();
+        if (pending) {
+            QObject::disconnect(pending.data(), nullptr, this, nullptr);
+            pending->abort();
+        }
+        delete label.data();
+        delete action.data();
+    }
+
+    void attach()
+    {
+        if (!obs_frontend_preview_program_mode_active() || label) return;
+        auto *layout = counter::centerLayout(main);
+        if (!layout) {
+            if (!warnedLayout) blog(LOG_WARNING, "[Center viewers] Center transition layout was not recognized; no UI was modified.");
+            warnedLayout = true;
+            return;
+        }
+        label = counter::addLabel(layout);
+        if (label) blog(LOG_INFO, "[Center viewers] Counter inserted below Studio Mode transitions.");
+        paint();
+    }
+
+    void paint()
+    {
+        if (!label) return;
+        const bool fresh = updated > 0 && QDateTime::currentMSecsSinceEpoch() - updated < 15000;
+        label->setText(fresh && !number.isEmpty() ? number : QStringLiteral("\u2014"));
+        label->setToolTip(status + QStringLiteral("\n") + source);
+    }
+
+    void publish(counter::Result result)
+    {
+        number = result.number;
+        if (status != result.status) {
+            const auto message = result.status.toUtf8();
+            blog(LOG_INFO, "[Center viewers] %s", message.constData());
+        }
+        status = result.status;
+        updated = QDateTime::currentMSecsSinceEpoch();
+        paint();
+    }
+
+    void request()
+    {
+        if (pending || selected.url.isEmpty()) return;
+        QNetworkRequest request(selected.url);
+        request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Mozilla/5.0 OBSViewerCounter/2.0"));
+        request.setRawHeader("Accept-Language", "en-US,en;q=0.9");
+        request.setRawHeader("Cache-Control", "no-cache");
+        request.setRawHeader("Pragma", "no-cache");
+        request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::AlwaysNetwork);
+        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+        request.setTransferTimeout(8000);
+        auto *reply = network.get(request);
+        pending = reply;
+        const counter::Target requested = selected;
+        // The transfer timeout measures idle time; this is an absolute deadline.
+        QTimer::singleShot(8000, reply, [reply]() { if (reply->isRunning()) reply->abort(); });
+        QObject::connect(reply, &QNetworkReply::readyRead, this, [reply]() {
+            if (reply->bytesAvailable() > MaxResponse) reply->abort();
+        });
+        QObject::connect(reply, &QNetworkReply::finished, this, [this, reply, requested]() {
+            pending.clear();
+            const QString host = reply->url().host().toLower();
+            const auto body = reply->read(MaxResponse + 1);
+            if (reply->error() != QNetworkReply::NoError) publish({{}, QStringLiteral("Citanje YouTube-a nije uspelo: ") + reply->errorString()});
+            else if (host != QStringLiteral("www.youtube.com") && host != QStringLiteral("youtube.com") && host != QStringLiteral("m.youtube.com"))
+                publish({{}, QStringLiteral("YouTube trazi saglasnost ili prijavu.")});
+            else if (body.size() > MaxResponse) publish({{}, QStringLiteral("YouTube odgovor je prevelik.")});
+            else publish(counter::parse(QString::fromUtf8(body), requested.video, requested.channel));
+            reply->deleteLater();
+        });
+    }
+
+    void settings()
+    {
+        bool ok = false;
+        const QString value = QInputDialog::getText(main, QStringLiteral("Broj gledalaca"),
+            QStringLiteral("YouTube kanal (@ime ili Channel ID) ili link prenosa:\nBroj se proverava svakih 5 sekundi."),
+            QLineEdit::Normal, source, &ok).trimmed();
+        if (!ok || value == source) return;
+        const auto target = counter::target(value);
+        if (target.url.isEmpty()) { QMessageBox::warning(main, QStringLiteral("Broj gledalaca"), QStringLiteral("Unesi ispravan YouTube kanal ili link prenosa.")); return; }
+        if (pending) {
+            QObject::disconnect(pending.data(), nullptr, this, nullptr);
+            pending->abort(); pending->deleteLater(); pending.clear();
+        }
+        source = value; selected = target;
+        if (!configPath.isEmpty()) QSettings(configPath, QSettings::IniFormat).setValue(QStringLiteral("source"), source);
+        publish({{}, QStringLiteral("Citanje novog kanala...")});
+        request();
+    }
 };
 
-void addCounterDock()
+QPointer<Controller> controller;
+bool exiting = false;
+
+void start()
 {
-    if (ourDock || obsIsExiting)
-        return;
-
+    if (controller || exiting) return;
     auto *main = static_cast<QMainWindow *>(obs_frontend_get_main_window());
-    if (!main) {
-        blog(LOG_WARNING, "[OBS 354] Main OBS window not found; dock not created.");
-        return;
-    }
-
-    auto *dock = new QDockWidget(QStringLiteral("Broj gledalaca"), main);
-    dock->setAllowedAreas(Qt::AllDockWidgetAreas);
-
-    // Keep the native OBS/Qt title bar and its "Broj gledalaca" caption.
-    // NoDockWidgetFeatures below removes the X and float buttons, without
-    // removing the caption itself.
-    dock->setWidget(new NumberWidget(dock));
-
-    // OBS may change dock features when 'Docks -> Lock Docks' is toggled.
-    // Re-enforce these properties so this particular dock remains locked.
-    QObject::connect(dock, &QDockWidget::featuresChanged, dock, [dock]() {
-        if (dock->features() != QDockWidget::NoDockWidgetFeatures)
-            dock->setFeatures(QDockWidget::NoDockWidgetFeatures);
-    });
-
-    if (!obs_frontend_add_custom_qdock(DockId, dock)) {
-        blog(LOG_WARNING, "[OBS 354] Dock registration failed (duplicate ID?).");
-        delete dock;
-        return;
-    }
-
-    ourDock = dock;
-    dock->setFeatures(QDockWidget::NoDockWidgetFeatures);
-
-    // OBS calls this default control panel 'controlsDock'.
-    auto *controls = main->findChild<QDockWidget *>(QStringLiteral("controlsDock"));
-    if (controls && !controls->isFloating()) {
-        main->splitDockWidget(controls, dock, Qt::Vertical);
-    } else {
-        // add_custom_qdock already places it in OBS's right dock area.
-        blog(LOG_INFO, "[OBS 354] Controls not docked; counter added to right area.");
-    }
-    dock->show();
-    blog(LOG_INFO, "[OBS 354] Fixed 34px content dock added (title = Broj gledalaca, counter = 354).");
+    if (main) controller = new Controller(main);
 }
 
-void onFrontendEvent(enum obs_frontend_event event, void *)
+void onEvent(enum obs_frontend_event event, void *)
 {
     if (event == OBS_FRONTEND_EVENT_EXIT) {
-        obsIsExiting = true;
+        exiting = true;
+        delete controller.data();
+        controller.clear();
         return;
     }
-    if (event != OBS_FRONTEND_EVENT_FINISHED_LOADING)
-        return;
-
-    // Defer until Qt has finished the current GUI event iteration.
-    auto *main = static_cast<QMainWindow *>(obs_frontend_get_main_window());
-    if (main)
-        QTimer::singleShot(0, main, [] { addCounterDock(); });
+    if (event == OBS_FRONTEND_EVENT_FINISHED_LOADING) {
+        auto *main = static_cast<QMainWindow *>(obs_frontend_get_main_window());
+        if (main) QTimer::singleShot(0, main, []() { start(); });
+    } else if (event == OBS_FRONTEND_EVENT_STUDIO_MODE_ENABLED && controller) {
+        QTimer::singleShot(0, controller.data(), []() { if (controller) controller->attach(); });
+    }
 }
 } // namespace
 
 extern "C" const char *obs_module_description(void)
 {
-    return "OBS dock titled Broj gledalaca with a fixed 34px number area displaying 354.";
+    return "Live YouTube viewers or waiting viewers below Studio Mode transition controls.";
 }
 
 extern "C" bool obs_module_load(void)
 {
-    obs_frontend_add_event_callback(onFrontendEvent, nullptr);
-    blog(LOG_INFO, "[OBS 354] Plugin initialized; awaiting frontend.");
+    obs_frontend_add_event_callback(onEvent, nullptr);
+    blog(LOG_INFO, "[Center viewers] Plugin loaded; awaiting OBS frontend.");
     return true;
 }
 
 extern "C" void obs_module_unload(void)
 {
-    obs_frontend_remove_event_callback(onFrontendEvent, nullptr);
-    // Qt / OBS own the QDockWidget. OBS cleans it up during exit.
-    if (!obsIsExiting && ourDock)
-        obs_frontend_remove_dock(DockId);
-    ourDock.clear();
+    obs_frontend_remove_event_callback(onEvent, nullptr);
+    delete controller.data(); controller.clear();
 }

@@ -25,7 +25,7 @@ jobs:
         run: |
           Copy-Item CMakeLists.txt template/CMakeLists.txt -Force
           Copy-Item buildspec.json template/buildspec.json -Force
-          Copy-Item src/plugin-main.cpp template/src/plugin-main.cpp -Force
+          Copy-Item src/* template/src/ -Force
           Remove-Item template/src/plugin-main.c -ErrorAction SilentlyContinue
           Copy-Item data/locale/en-US.ini template/data/locale/en-US.ini -Force
 
@@ -39,6 +39,21 @@ jobs:
         working-directory: template
         run: cmake --build --preset windows-x64 --config RelWithDebInfo
 
+      - name: Proveri parser i Studio Mode raspored
+        shell: pwsh
+        run: |
+          $qt = Get-ChildItem template/.deps -Recurse -Filter Qt6Core.dll -File | Select-Object -First 1
+          if (!$qt) { throw 'Qt6Core.dll nije pronadjen za testove' }
+          $env:PATH = "$($qt.Directory.FullName);$env:PATH"
+          $platform = Get-ChildItem template/.deps -Recurse -Filter qwindows.dll -File | Select-Object -First 1
+          if (!$platform) { throw 'Qt windows platform plugin nije pronadjen' }
+          $env:QT_QPA_PLATFORM_PLUGIN_PATH = $platform.Directory.FullName
+          $env:QT_QPA_PLATFORM = 'windows'
+          $test = Get-ChildItem template/build_x64 -Recurse -Filter counter-tests.exe -File | Select-Object -First 1
+          if (!$test) { throw 'counter-tests.exe nije pronadjen' }
+          & $test.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Testovi nisu prosli' }
+
       - name: Pripremi paket
         shell: pwsh
         run: |
@@ -48,6 +63,7 @@ jobs:
           New-Item -ItemType Directory -Force paket/obs-fixed-counter/data/locale | Out-Null
           Copy-Item $dll.FullName paket/obs-fixed-counter/bin/64bit/obs-fixed-counter.dll
           Copy-Item data/locale/en-US.ini paket/obs-fixed-counter/data/locale/en-US.ini
+          Copy-Item UPUTSTVO_GITHUB.txt paket/obs-fixed-counter/UPUTSTVO.txt
 
       - name: Sacuvaj paket za preuzimanje
         uses: actions/upload-artifact@v4

@@ -1,40 +1,59 @@
-OBS BROJ GLEDALACA - DLL BEZ VISUAL STUDIJA NA RACUNARU
-=======================================================
+BROJ GLEDALACA ISPOD KOMANDI ZA TRANZICIJU U STUDIO MODU
+=====================================================
 
-Potreban je samo GitHub nalog i internet pregledač.
-Kompilacija se izvodi na GitHub-ovom Windows-2022 racunaru.
+Ovaj dodatak prikazuje zuti broj ispod tranzicija i T-bar klizaca,
+izmedju Preview i Program displeja. Broj je deo OBS interfejsa i nije
+deo scene niti se pojavljuje u snimku/strimu.
 
-KORACI
-1. Otvori https://github.com/new i prijavi se.
-2. Napravi novi PUBLIC repository, npr. obs-broj-gledalaca, sa README fajlom
-   (to je zgodno da repozitorijum odmah ima granu main).
-3. Na GitHub stranici repozitorijuma izaberi Add file > Upload files.
-4. Raspakuj ovaj ZIP na svom racunaru.
-5. Prevuci SADRZAJ foldera OBS_Broj_gledalaca_GitHub_izrada u upload prozor:
-   CMakeLists.txt, buildspec.json, src/, data/ i .github/.
-   Vazno: .github je skriven folder na Windowsu; ukljuci prikaz hidden items.
-   Ako web uploader ne prenese foldere pravilno, koristi GitHub web-editor
-   (taster . u repo) i kopiraj ih u odgovarajuce lokacije.
-6. Potvrdi Commit changes.
-7. Otvori karticu Actions, izaberi 'Napravi OBS DLL na GitHub-u',
-   zatim Run workflow > Run workflow ako se sam nije pokrenuo.
-8. Ako build uspe, otvori njegovu stranicu i u delu Artifacts preuzmi
-   'OBS-Broj-gledalaca-Windows' ZIP. Nije DLL sam za sebe nego direktorijum
-   sa DLL i njegovom data locale datotekom.
-9. Raspakuj arhivu, zatvori OBS i kopiraj dobijeni sadrzaj u:
-   C:\ProgramData\obs-studio\plugins\obs-fixed-counter\
-   Tako da DLL bude u:
+INSTALACIJA (Windows x64)
+1. Zatvori OBS.
+2. Raspakuj paket tako da dobijes:
    C:\ProgramData\obs-studio\plugins\obs-fixed-counter\bin\64bit\obs-fixed-counter.dll
-   a en-US.ini u data\locale\en-US.ini.
-10. Ponovo pokreni OBS. Pogledaj Help > Log Files > View Current Log ako nije ucitan.
+   C:\ProgramData\obs-studio\plugins\obs-fixed-counter\data\locale\en-US.ini
+   Ako vec imas stariji obs-fixed-counter dodatak, zameni njegov DLL.
+3. Pokreni OBS i ukljuci Studio Mode.
+4. Broj ce se pojaviti ispod komandi za tranziciju.
 
-NAPOMENA
-- Ovo je pripremljen, ali NEISPROBAN workflow; stvarni Windows DLL ovde
-  nisam mogao da prevedem niti testiram. Ako build prijavi gresku,
-  GitHub prikazuje zapis greske za ispravku.
-- GitHub Actions kod javnih repozitorijuma uobicajeno je dostupan bez placanja,
-  ali podlozan je aktuelnim pravilima GitHub naloga.
-- Koristi odgovarajucu OBS x64 verziju; projekat polazi od OBS 31.1.1
-  development biblioteka, pa kompatibilnost proveri u svojoj verziji OBS-a.
-- Sadrzaj brojaca je fiksan '354' dok se kasnije ne uradi automatsko citanje.
-- Visina sadrzaja je 30px, font 20px, naslov Broj gledalaca.
+PODESAVANJE KANALA
+Tools / Alati > Broj gledalaca - kanal
+Unesi @imeKanala, Channel ID, adresu kanala /live ili link konkretnog prenosa.
+Nije potrebno praviti novi DLL pri promeni kanala.
+Podrazumevano se prati prvobitni kanal vracen na GitHub stranicu:
+UCQXPKDYp4U9JkTWAON_AhOw
+
+Primeri za test:
+@TheLodgeLive
+@BeogradCom
+https://www.youtube.com/@JonCohenOfficial/live
+
+Broj se proverava svakih 5 sekundi kada YouTube odgovara na vreme.
+Pre pocetka prenosa prikazuje se broj onih koji cekaju.
+Tokom prenosa prikazuje se broj trenutnih gledalaca.
+Ako broj nije dostupan, prenos je zavrsen ili je podatak zastareo,
+prikazuje se —. Stvarni broj 0 se prikazuje kao 0.
+Ako zahtev traje duze, ne pokrece se novi zahtev dok prethodni ne zavrsi.
+YouTube moze objavljivati promene broja sporije od provere na 5 sekundi.
+
+Za ovaj dodatak ne trebaju Python, lokalni server niti YouTube Data API kljuc.
+Stari obs_gledaoci.py mozes ukloniti ako si ga dodao; dodatak radi samostalno.
+GitHub YouTube panel moze ostati na svojoj javnoj adresi.
+Brojac ima sopstveni izbor kanala; ne cita izbor iz Browser Dock panela.
+
+PROVERE I OGRANICENJA
+DLL se prevodi na GitHub-ovom Windows racunaru. Automatski testovi proveravaju
+parser, cekanje/uzivo/nulu, nepodrzane podatke, izbor kanala i dodavanje,
+uklanjanje i ponovno dodavanje broja u Studio Mode raspored.
+Test rasporeda koristi Qt prozor istog oblika, a nije stvarna OBS sesija.
+Raspored je proveren prema izvornom kodu OBS 31.1.1. Ako novija verzija
+promeni unutrasnji raspored, dodatak ne ubacuje broj na nepoznato mesto;
+u OBS logu ostavlja poruku o neprepoznatom rasporedu.
+YouTube javni format moze da se promeni ili da zahteva prijavu/saglasnost.
+U tom slucaju prikazuje se — i treba prilagoditi citanje.
+
+UKLANJANJE
+Zatvori OBS i ukloni obs-fixed-counter.dll iz navedenog foldera.
+
+PREUZIMANJE SA GITHUB-A
+https://github.com/goranvu/OBS-things/actions
+Otvori najnoviji uspesan 'Napravi OBS DLL na GitHub-u' za ovu izmenu.
+U Artifacts preuzmi OBS-Broj-gledalaca-Windows.
