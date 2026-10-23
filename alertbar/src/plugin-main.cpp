@@ -378,6 +378,7 @@ public:
         timer.start(40);
         QTimer::singleShot(0,this,[this](){attach();});
     }
+    void reattach(){attach();}
     ~Controller()override {
         timer.stop();
         stopWorker();
@@ -398,7 +399,7 @@ void frontendEvent(enum obs_frontend_event e,void*) {
         auto*main=static_cast<QMainWindow*>(obs_frontend_get_main_window());
         if(main)QTimer::singleShot(0,main,[](){start();});
     } else if(e==OBS_FRONTEND_EVENT_STUDIO_MODE_ENABLED) {
-        if(controller)QTimer::singleShot(0,controller.data(),[](){if(controller)controller->tick();});
+        if(controller)QTimer::singleShot(0,controller.data(),[](){if(controller)controller->reattach();});
     } else if(e==OBS_FRONTEND_EVENT_EXIT) {
         exiting=true;delete controller.data();controller.clear();
     }
