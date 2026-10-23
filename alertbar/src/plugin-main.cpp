@@ -216,6 +216,8 @@ class Controller:public QObject {
     QElapsedTimer clock;
     qint64 lastScan=-10000;
     QString settingsPath;
+    QString monitoredDeviceId;
+    qint64 lastCaptureAttempt=0;
     bool warned=false;
 public:
     explicit Controller(QMainWindow*w):QObject(w),main(w) {
@@ -304,6 +306,8 @@ public:
         if(FAILED(newMeter->GetMeteringChannelCount(&count))||count<1||count>32)return;
         dev=newDev;meter=newMeter;samples.assign(count,0.0f);
         blog(LOG_INFO,"[Line In Alert] Starting PCM music classifier for selected Line In.");
+        monitoredDeviceId=chosen;
+        lastCaptureAttempt=clock.elapsed();
         musicCapture=std::make_unique<MusicCapture>(chosen);
         musicCapture->start();
         blog(LOG_INFO,"[Line In Alert] Capture endpoint monitored (%u channels).",count);
@@ -320,6 +324,14 @@ public:
         }
         float peak=0;
         for(float s:samples)if(std::isfinite(s))peak=std::max(peak,s);
+        if(musicCapture && !musicCapture->isRunning() &&
+           clock.elapsed()-lastCaptureAttempt>12000 && !monitoredDeviceId.isEmpty()) {
+            blog(LOG_INFO,"[Line In Alert] Retrying WASAPI music capture after startup failure.");
+            musicCapture->wait();
+            musicCapture=std::make_unique<MusicCapture>(monitoredDeviceId);
+            lastCaptureAttempt=clock.elapsed();
+            musicCapture->start();
+        }
         if(bar){bar->feed(peak,clock.elapsed());
             bar->setMusic(musicCapture && musicCapture->isReady && musicCapture->isMusic);
         }
