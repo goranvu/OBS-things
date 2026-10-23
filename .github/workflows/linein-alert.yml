@@ -1,0 +1,51 @@
+name: Build OBS Line In Alert Bar DLL
+on:
+  push:
+    branches: [obs-linein-alert]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows-dll:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone OBS template
+        shell: pwsh
+        run: git clone --depth 1 https://github.com/obsproject/obs-plugintemplate.git template
+      - name: Copy plugin
+        shell: pwsh
+        run: |
+          Copy-Item alertbar/CMakeLists.txt template/CMakeLists.txt -Force
+          Copy-Item alertbar/buildspec.json template/buildspec.json -Force
+          Copy-Item alertbar/src/* template/src/ -Force
+          Remove-Item template/src/plugin-main.c -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force template/data/locale | Out-Null
+          Copy-Item alertbar/data/locale/en-US.ini template/data/locale/en-US.ini -Force
+      - name: Configure
+        shell: pwsh
+        working-directory: template
+        run: cmake --preset windows-x64 -DENABLE_QT=ON -DENABLE_FRONTEND_API=ON
+      - name: Compile
+        shell: pwsh
+        working-directory: template
+        run: cmake --build --preset windows-x64 --config RelWithDebInfo
+      - name: Test and package
+        shell: pwsh
+        run: |
+          $test=Get-ChildItem template/build_x64 -Recurse -Filter alert-tests.exe -File | Select-Object -First 1
+          if (!$test) { throw 'Tests missing' }
+          & $test.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Test failed' }
+          $dll=Get-ChildItem template/build_x64 -Recurse -Filter obs-linein-alert.dll -File | Select-Object -First 1
+          if (!$dll) { throw 'DLL missing' }
+          New-Item -ItemType Directory -Force package/obs-linein-alert/bin/64bit | Out-Null
+          New-Item -ItemType Directory -Force package/obs-linein-alert/data/locale | Out-Null
+          Copy-Item $dll.FullName package/obs-linein-alert/bin/64bit/obs-linein-alert.dll
+          Copy-Item alertbar/data/locale/en-US.ini package/obs-linein-alert/data/locale/en-US.ini
+          Copy-Item alertbar/UPUTSTVO.txt package/obs-linein-alert/UPUTSTVO.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OBS-LineIn-AlertBar-Windows-x64
+          path: package/obs-linein-alert/
+          if-no-files-found: error
