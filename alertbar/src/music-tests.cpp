@@ -3,7 +3,6 @@
 #include <cstdlib>
 #include <iostream>
 #include <cmath>
-#include <iostream>
 #include <random>
 void tone(music::MusicDetector&d,double sec){
  const double pi=3.14159265358979323846;
@@ -21,7 +20,7 @@ int main(){
  music::MusicDetector d;
  silence(d,2);check(!d.music(),"silence -> thin");
  tone(d,3);check(d.music(),"chord -> thick");
- silence(d,1);assert(!d.music());
+ silence(d,1);check(!d.music(),"music stopped -> thin");
  music::MusicDetector noise;
  std::mt19937 mt(17);
  std::uniform_real_distribution<float> dist(-.15f,.15f);
