@@ -1,4 +1,4 @@
-// OBS Line In Alert Bar + opt-in automatic Windows Recording gain.
+// OBS Tools-menu automatic Windows Recording gain (no UI bar).
 // GPL-2.0-or-later. Windows Core Audio (WASAPI) + Qt.
 #include <obs-module.h>
 #include <obs-frontend-api.h>
@@ -11,18 +11,12 @@
 #include <functiondiscoverykeys_devpkey.h>
 #include <wrl/client.h>
 
-#include <QHBoxLayout>
-#include <QVBoxLayout>
-#include <QCheckBox>
-#include <QLabel>
+#include <QAction>
 #include <QMainWindow>
-#include <QPainter>
 #include <QPointer>
 #include <QTimer>
 #include <QElapsedTimer>
 #include <QSettings>
-#include <QWidget>
-#include <QDir>
 #include <QThread>
 #include <QByteArray>
 #include <algorithm>
@@ -34,7 +28,6 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include "alert-logic.hpp"
 #include "adaptive-gain.hpp"
 
 using Microsoft::WRL::ComPtr;
@@ -49,38 +42,6 @@ struct ComInit {
         owned(hr==S_OK||hr==S_FALSE) {}
     ~ComInit() { if(owned) CoUninitialize(); }
     bool ok()const { return SUCCEEDED(hr)||hr==RPC_E_CHANGED_MODE; }
-};
-
-class AlertBar final:public QWidget {
-    alert::Detector detector;
-    bool online=false;
-    int64_t now=0;
-public:
-    explicit AlertBar(QWidget*parent):QWidget(parent) {
-        setObjectName("obs_linein_alert_bar");
-        setFixedHeight(4);
-        setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
-        setAttribute(Qt::WA_TransparentForMouseEvents);
-    }
-    void feed(float peak,int64_t time) {
-        online=true;now=time;detector.update(peak,time);update();
-    }
-    void offline() { online=false;detector.reset();update(); }
-protected:
-    void paintEvent(QPaintEvent*)override {
-        QPainter painter(this);
-        painter.fillRect(rect(),QColor(43,44,46));
-        if(!online)return;
-        const int widthPixels=std::max(0,width()-2);
-        const int v=std::clamp((int)std::lround(widthPixels*alert::fraction(detector.db())),0,widthPixels);
-        const int green=(int)std::lround(widthPixels*alert::fraction(alert::kYellowDb));
-        const int amber=(int)std::lround(widthPixels*alert::fraction(alert::kRedDb));
-        // At 4px: 2px tall colorful signal and a 1px margin.
-        if(v>0)painter.fillRect(1,1,std::min(v,green),2,QColor(42,176,101));
-        if(v>green)painter.fillRect(green+1,1,std::min(v,amber)-green,2,QColor(234,176,44));
-        if(v>amber)painter.fillRect(amber+1,1,v-amber,2,QColor(231,69,60));
-        if(detector.blink(now))painter.fillRect(0,0,width(),4,QColor(255,49,49,175));
-    }
 };
 
 // No audio output is touched. This captures the SAME Windows Recording Line In
@@ -102,7 +63,7 @@ class AutoGainThread final:public QThread {
     }
 public:
     std::atomic<bool> stopFlag{false};
-    std::atomic<bool> autoEnabled{false}; // DISABLED at startup for safety.
+    std::atomic<bool> autoEnabled{true}; // Always ON when OBS is started.
     std::atomic<bool> ready{false};       // true only if real PCM and gain API work.
     std::atomic<int> reductionDb{0};
     explicit AutoGainThread(const QString&id):endpointId(id.toStdWString()) {}
@@ -227,7 +188,9 @@ protected:
                         hr=volume->GetMasterVolumeLevel(&currentDb);
                         if(SUCCEEDED(hr)) {
                             const float requestedDb=alert::requestedGainDb(action,currentDb,baselineDb,low,high);
-                            if(std::fabs(requestedDb-currentDb)>.05f) {
+                            // Honor unchecked Tools menu before any actual gain change.
+                            if(autoEnabled.load(std::memory_order_acquire) &&
+                               std::fabs(requestedDb-currentDb)>.05f) {
                                 hr=volume->SetMasterVolumeLevel(requestedDb,nullptr);
                                 if(SUCCEEDED(hr)) {
                                     const int remaining=(int)std::lround(baselineDb-requestedDb);
@@ -262,165 +225,123 @@ protected:
 };
 
 class Controller final:public QObject {
-    QMainWindow*main;
     ComInit com{COINIT_APARTMENTTHREADED};
     ComPtr<IMMDeviceEnumerator> enumerator;
-    ComPtr<IMMDevice> device;
-    ComPtr<IAudioMeterInformation> meter;
     std::unique_ptr<AutoGainThread> worker;
-    QPointer<QWidget> row;
-    QPointer<AlertBar> bar;
-    QPointer<QCheckBox> check;
+    QPointer<QAction> autoAction;
     QTimer timer;
     QElapsedTimer clock;
-    std::vector<float> peaks;
     QString settingsPath, monitoredId;
     qint64 lastScan=-10000, lastRetry=-10000;
     bool warned=false;
-    bool requestedAuto=false;
+    bool requestedAuto=true; // On at every OBS startup, not persisted.
     void stopWorker() {
-        if(worker) {worker->stopFlag=true;worker->wait();worker.reset();}
+        if(worker){worker->stopFlag=true;worker->wait();worker.reset();}
     }
-    void attach() {
-        if(row)return;
-        auto*layout=main->findChild<QHBoxLayout*>("previewLayout");
-        if(!layout)return;
-        for(int i=0;i<layout->count();++i) {
-            QWidget*container=layout->itemAt(i)->widget();
-            if(!container)continue;
-            auto*box=qobject_cast<QVBoxLayout*>(container->layout());
-            if(!box||box->count()<2)continue;
-            auto*label=qobject_cast<QLabel*>(box->itemAt(0)->widget());
-            auto*display=box->itemAt(1)->widget();
-            if(!label||!display)continue;
-            if(label->property("class").toString()!="label-preview-title")continue;
-            if(QString::fromLatin1(display->metaObject()->className())!="OBSQTDisplay")continue;
-            QWidget*r=new QWidget(container);
-            r->setObjectName("obs_linein_alert_auto_row");
-            auto*h=new QHBoxLayout(r);
-            h->setContentsMargins(0,0,0,0);
-            h->setSpacing(7);
-            bar=new AlertBar(r);
-            h->addWidget(bar,1,Qt::AlignVCenter);
-            check=new QCheckBox(QStringLiteral("Auto"),r);
-            check->setObjectName("obs_linein_auto_checkbox");
-            check->setChecked(requestedAuto);
-            check->setEnabled(worker&&worker->ready.load());
-            check->setToolTip("Auto: prejaki pikovi 2 s = -3 dB; 4 s tihi govor = +2 dB. Maks. +18/-18 dB prema pocetnom nivou.");
-            h->addWidget(check,0,Qt::AlignVCenter);
-            QObject::connect(check.data(),&QCheckBox::toggled,this,[this](bool on){
-                requestedAuto=on;
-                if(worker)worker->autoEnabled=on;
-                blog(LOG_INFO,"[Line In Alert] Auto gain %s by user.",on?"ON":"OFF");
-            });
-            box->insertWidget(2,r);
-            row=r;
-            blog(LOG_INFO,"[Line In Alert] Added fixed 4px bar and Auto checkbox under Program.");
-            return;
-        }
-    }
-    void chooseDevice() {
+    void chooseDevice(){
         lastScan=clock.elapsed();
         stopWorker();
-        meter.Reset();device.Reset();peaks.clear();monitoredId.clear();
+        monitoredId.clear();
         if(!enumerator)return;
         ComPtr<IMMDeviceCollection> collection;
-        if(FAILED(enumerator->EnumAudioEndpoints(eCapture,DEVICE_STATE_ACTIVE,&collection)))return;
-        UINT n=0;collection->GetCount(&n);
-        std::vector<QString> ids, lineIds;
-        for(UINT i=0;i<n;++i) {
-            ComPtr<IMMDevice> d;
+        HRESULT hr=enumerator->EnumAudioEndpoints(eCapture,DEVICE_STATE_ACTIVE,&collection);
+        if(FAILED(hr)){
+            blog(LOG_WARNING,"[Line In Alert] Cannot enumerate Windows Recording endpoints: 0x%08lx.",(unsigned long)hr);
+            return;
+        }
+        UINT count=0;
+        collection->GetCount(&count);
+        std::vector<QString> allIds,lineIds;
+        for(UINT i=0;i<count;++i){
+            ComPtr<IMMDevice>d;
             if(FAILED(collection->Item(i,&d)))continue;
             LPWSTR wideId=nullptr;
             if(FAILED(d->GetId(&wideId))||!wideId)continue;
             QString id=QString::fromWCharArray(wideId);
             CoTaskMemFree(wideId);
-            ids.push_back(id);
+            allIds.push_back(id);
             QString name;
             ComPtr<IPropertyStore>store;
-            if(SUCCEEDED(d->OpenPropertyStore(STGM_READ,&store))) {
-                PROPVARIANT v;PropVariantInit(&v);
-                if(SUCCEEDED(store->GetValue(PKEY_Device_FriendlyName,&v))&&
-                   v.vt==VT_LPWSTR&&v.pwszVal)name=QString::fromWCharArray(v.pwszVal);
-                PropVariantClear(&v);
+            if(SUCCEEDED(d->OpenPropertyStore(STGM_READ,&store))){
+                PROPVARIANT value;PropVariantInit(&value);
+                if(SUCCEEDED(store->GetValue(PKEY_Device_FriendlyName,&value))&&
+                   value.vt==VT_LPWSTR&&value.pwszVal)
+                    name=QString::fromWCharArray(value.pwszVal);
+                PropVariantClear(&value);
             }
-            QString lower=name.toLower();
+            const QString lower=name.toLower();
             if(lower.contains("line in")||lower.contains("line-in")||
                lower.contains("line input")||lower.contains("linijski ulaz"))
                 lineIds.push_back(id);
         }
         QString chosen;
-        if(!settingsPath.isEmpty()) {
+        if(!settingsPath.isEmpty()){
             QSettings settings(settingsPath,QSettings::IniFormat);
-            QString overrideId=settings.value("device_id").toString();
-            for(const auto&id:ids)if(id==overrideId)chosen=id;
+            const QString preferred=settings.value("device_id").toString();
+            for(const auto&id:allIds)if(id==preferred)chosen=id;
         }
         if(chosen.isEmpty()&&lineIds.size()==1)chosen=lineIds.front();
-        if(chosen.isEmpty()) {
-            if(!warned)blog(LOG_WARNING,"[Line In Alert] No unique Line In capture endpoint. Select with settings.ini/device_id.");
+        if(chosen.isEmpty()){
+            if(!warned)blog(LOG_WARNING,"[Line In Alert] No unique Line In input available. Tools control remains checked; no gain changes performed.");
             warned=true;
-            if(bar)bar->offline();
-            if(check)check->setEnabled(false);
             return;
         }
-        ComPtr<IMMDevice> dev;
-        if(FAILED(enumerator->GetDevice(reinterpret_cast<LPCWSTR>(chosen.utf16()),&dev)))return;
-        ComPtr<IAudioMeterInformation> peakMeter;
-        if(FAILED(dev->Activate(__uuidof(IAudioMeterInformation),CLSCTX_ALL,nullptr,
-                reinterpret_cast<void**>(peakMeter.GetAddressOf()))))return;
-        UINT ch=0;
-        if(FAILED(peakMeter->GetMeteringChannelCount(&ch))||ch<1||ch>32)return;
-        device=dev;meter=peakMeter;peaks.assign(ch,0);
+        warned=false;
         monitoredId=chosen;
         lastRetry=clock.elapsed();
         worker=std::make_unique<AutoGainThread>(chosen);
-        worker->autoEnabled=requestedAuto;
+        worker->autoEnabled.store(requestedAuto,std::memory_order_release);
         worker->start();
-        blog(LOG_INFO,"[Line In Alert] Monitoring %u-channel Windows Recording Line In.",ch);
+        blog(LOG_INFO,"[Line In Alert] Automatic Line In control started; Tools menu state: %s.",requestedAuto?"ON":"OFF");
     }
-    void tick() {
-        if(!row)attach();
-        if(!meter&&clock.elapsed()-lastScan>3000)chooseDevice();
-        if(meter) {
-            if(FAILED(meter->GetChannelsPeakValues((UINT)peaks.size(),peaks.data()))) {
-                stopWorker();meter.Reset();device.Reset();peaks.clear();
-                if(bar)bar->offline();
-                if(check)check->setEnabled(false);
-                lastScan=clock.elapsed();
-                return;
-            }
-            float maxPeak=0;
-            for(float p:peaks)if(std::isfinite(p))maxPeak=std::max(maxPeak,p);
-            if(bar)bar->feed(maxPeak,clock.elapsed());
+    void tick(){
+        if(!worker){
+            if(clock.elapsed()-lastScan>=3000)chooseDevice();
+            return;
         }
-        if(worker&&!worker->isRunning()&&clock.elapsed()-lastRetry>12000&&!monitoredId.isEmpty()) {
-            blog(LOG_INFO,"[Line In Alert] Retrying shared Line In capture / Auto control.");
+        if(!worker->isRunning() && clock.elapsed()-lastRetry>=12000 && !monitoredId.isEmpty()){
+            blog(LOG_INFO,"[Line In Alert] Reconnecting shared Line In PCM capture.");
             stopWorker();
             worker=std::make_unique<AutoGainThread>(monitoredId);
-            worker->autoEnabled=requestedAuto;
-            lastRetry=clock.elapsed();worker->start();
-        }
-        if(check) {
-            bool available=worker&&worker->ready.load();
-            if(check->isEnabled()!=available)check->setEnabled(available);
+            worker->autoEnabled.store(requestedAuto,std::memory_order_release);
+            lastRetry=clock.elapsed();
+            worker->start();
         }
     }
 public:
-    explicit Controller(QMainWindow*w):QObject(w),main(w) {
+    explicit Controller(QMainWindow*window):QObject(window){
         char*path=obs_module_config_path("settings.ini");
         if(path){settingsPath=QString::fromUtf8(path);bfree(path);}
-        if(com.ok())CoCreateInstance(__uuidof(MMDeviceEnumerator),nullptr,CLSCTX_ALL,IID_PPV_ARGS(&enumerator));
+        if(com.ok()){
+            const HRESULT hr=CoCreateInstance(__uuidof(MMDeviceEnumerator),nullptr,CLSCTX_ALL,IID_PPV_ARGS(&enumerator));
+            if(FAILED(hr))blog(LOG_WARNING,"[Line In Alert] Failed initializing Windows Core Audio: 0x%08lx.",(unsigned long)hr);
+        }
+        // Official OBS frontend API. OBS owns the Tools menu itself.
+        QAction*action=static_cast<QAction*>(
+            obs_frontend_add_tools_menu_qaction(u8"Аутоматска контрола нивоа звука"));
+        if(action){
+            autoAction=action;
+            action->setCheckable(true);
+            action->setChecked(true);
+            QObject::connect(action,&QAction::toggled,this,[this](bool enabled){
+                requestedAuto=enabled;
+                if(worker)worker->autoEnabled.store(enabled,std::memory_order_release);
+                blog(LOG_INFO,"[Line In Alert] Tools > Automatic Sound Level Control: %s.",
+                     enabled?"ENABLED":"DISABLED");
+            });
+        }else{
+            blog(LOG_WARNING,"[Line In Alert] Unable to add Tools menu action.");
+        }
         clock.start();
         QObject::connect(&timer,&QTimer::timeout,this,[this](){tick();});
-        timer.start(40);
-        QTimer::singleShot(0,this,[this](){attach();});
+        timer.start(250);
+        QTimer::singleShot(0,this,[this](){tick();});
     }
-    void reattach(){attach();}
     ~Controller()override {
         timer.stop();
         stopWorker();
-        if(row){delete row.data();row.clear();}
-        meter.Reset();device.Reset();enumerator.Reset();
+        if(autoAction){delete autoAction.data();autoAction.clear();}
+        enumerator.Reset();
     }
 };
 
@@ -435,19 +356,17 @@ void frontendEvent(enum obs_frontend_event e,void*) {
     if(e==OBS_FRONTEND_EVENT_FINISHED_LOADING) {
         auto*main=static_cast<QMainWindow*>(obs_frontend_get_main_window());
         if(main)QTimer::singleShot(0,main,[](){start();});
-    } else if(e==OBS_FRONTEND_EVENT_STUDIO_MODE_ENABLED) {
-        if(controller)QTimer::singleShot(0,controller.data(),[](){if(controller)controller->reattach();});
     } else if(e==OBS_FRONTEND_EVENT_EXIT) {
         exiting=true;delete controller.data();controller.clear();
     }
 }
 }
 extern "C" const char*obs_module_description(void) {
-    return "Fixed 4px Line In peak meter with opt-in automatic Recording gain.";
+    return "Automatically regulate Windows Recording Line In via checkable OBS Tools menu action.";
 }
 extern "C" bool obs_module_load(void) {
     obs_frontend_add_event_callback(frontendEvent,nullptr);
-    blog(LOG_INFO,"[Line In Alert] v2.2 peak bar + real bidirectional adaptive Auto Gain.");
+    blog(LOG_INFO,"[Line In Alert] v3.0 headless automatic Line In gain control. Tools menu enabled by default.");
     return true;
 }
 extern "C" void obs_module_unload(void) {

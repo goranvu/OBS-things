@@ -1,26 +1,31 @@
-OBS Line In Alert Bar v2.2 - Adaptive two-way Windows Recording Auto gain.
-Install as before: C:\ProgramData\obs-studio\plugins\obs-linein-alert\
-Close OBS first, replace DLL, restart. In Studio Mode, fixed 4px bar and Auto checkbox.
+OBS Automatic Line In Sound Level Control v3.0
+=====================================================
+Windows 10, OBS Studio 31.x (x64)
 
-FIX: Earlier versions did NOT allow ANY automatic amplification past the Windows
-input level at the time Auto was first checked. This version CAN increase beyond
-the initial input gain, up to +18dB (if the Windows sound card supports it).
-It cannot exceed the sound card's Windows Recording maximum level.
+INSTALL
+- Close OBS completely.
+- Copy obs-linein-alert directory from ZIP to
+  C:\ProgramData\obs-studio\plugins\
+- Start OBS. There is NO longer any thin volume bar or Auto checkbox under Program.
+- Open OBS menu Tools > Аутоматска контрола нивоа звука
+- The item is CHECKED every time OBS starts. It is not persisted as OFF.
+- Click the checked item to DISABLE all automatic level corrections.
+- Click again to ENABLE them. The existing Windows Recording gain is not
+  automatically reverted upon disabling.
 
-QUIET SPEECH: Around 4 seconds of quiet, modulated sound (peak as low as 0.3%
-of full digital scale, RMS >=0.06%) triggers a +2dB input-level increase.
-Further increases are at most every 3 seconds. Silence or continuous steady
-background noise do not trigger increases. If input becomes too strong,
-the existing -3dB adjustment still fires after 2s >= about 90% peaks.
-No voice/music classification needed. AUTO checkbox stays opt-in.
+SAME ADAPTIVE CONTROL AS v2.2
+- Sustained peaks close to clipping for two seconds: Windows Line In DOWN 3 dB.
+- Sustained quiet/modulated sound: Windows Line In UP 2 dB in slow steps.
+- Never boost background silence or steady noise.
+- Maximum +/-18 dB from baseline, bounded by hardware Recording level range.
+- NO speech/music classification; NO video or volume UI in Program display.
+- The Windows Recording capture endpoint must be named Line In, or the
+  previously supported settings.ini device_id override must be used.
+- If no usable Line In device, the menu item may still be CHECKED, but
+  no hardware adjustment can be made. See OBS logs for the reason.
 
-SAFE LIMITS: +/-18dB around the initial Windows input level; Windows hardware
-minimum and maximum respected. Auto remains off unless user checks it.
-Even with +18dB, extremely quiet sound may remain quiet. If Windows level is
-already at hardware maximum, NO plugin can increase that particular hardware
-input level using the Windows Recording-volume control.
-With some drivers, software volume doesn't prevent ADC clipping.
+LOG: OBS Help > Log Files > View Current Log; search [Line In Alert].
+The previous viewer-count plugin remains untouched.
 
-TROUBLESHOOTING: Help > Log Files > View Current Log, search [Line In Alert].
-The v2.2 log records UP/DOWN changes and diagnostic PCM input and gain values
-every ~8s. Verify actual Windows Sound > Recording > Line In > Levels changes.
+Note: If clipping happens before sound-card ADC, changing Windows software
+Recording gain will not remove that distortion.
