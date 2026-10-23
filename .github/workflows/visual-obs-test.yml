@@ -1,0 +1,110 @@
+name: OBS real GUI screenshot test
+on:
+  push:
+    branches: [obs-linein-alert]
+    paths: [".github/workflows/visual-obs-test.yml"]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  capture-obs-screen:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download compiled plugin
+        uses: actions/download-artifact@v4
+        with:
+          name: OBS-LineIn-AlertBar-Windows-x64
+          run-id: 39932619180
+          github-token: ${{ github.token }}
+          path: dll-output
+      - name: Prepare actual Windows OBS
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $url='https://github.com/obsproject/obs-studio/releases/download/31.1.1/OBS-Studio-31.1.1-Windows-x64.zip'
+          Invoke-WebRequest $url -OutFile "$env:RUNNER_TEMP\obs.zip"
+          Expand-Archive "$env:RUNNER_TEMP\obs.zip" -DestinationPath obs-portable -Force
+          $exe=Get-ChildItem obs-portable -Recurse -Filter obs64.exe -File|Select-Object -First 1
+          if(!$exe){throw "OBS exe not found"}
+          $root=(Split-Path (Split-Path $exe.DirectoryName -Parent) -Parent)
+          "OBS_ROOT=$root"|Out-File -Append $env:GITHUB_ENV
+          "OBS_EXE=$($exe.FullName)"|Out-File -Append $env:GITHUB_ENV
+          Write-Host "OBS root $root"
+          Get-ChildItem dll-output -Recurse -File | Select-Object -ExpandProperty FullName
+          $plugin=Get-ChildItem dll-output -Recurse -Filter obs-linein-alert.dll -File|Select-Object -First 1
+          if(!$plugin){throw 'plugin DLL missing'}
+          $pluginBase=Join-Path $root 'obs-plugins\64bit'
+          New-Item -ItemType Directory -Force $pluginBase|Out-Null
+          Copy-Item $plugin.FullName (Join-Path $pluginBase 'obs-linein-alert.dll')
+          # Normal Windows OBS plug-in search: program root / obs-plugins/64bit or ProgramData
+          $sys=Join-Path $env:ProgramData 'obs-studio\plugins\obs-linein-alert\bin\64bit'
+          New-Item -ItemType Directory -Force $sys|Out-Null
+          Copy-Item $plugin.FullName (Join-Path $sys 'obs-linein-alert.dll')
+          $locale=Get-ChildItem dll-output -Recurse -Filter en-US.ini -File|Select-Object -First 1
+          if($locale){
+            $loc=Join-Path $env:ProgramData 'obs-studio\plugins\obs-linein-alert\data\locale'
+            New-Item -ItemType Directory -Force $loc|Out-Null
+            Copy-Item $locale.FullName (Join-Path $loc 'en-US.ini')
+          }
+          # initialize portable-mode settings
+          New-Item -ItemType File -Force (Join-Path $root 'portable_mode.txt')|Out-Null
+      - name: Run OBS and capture actual Windows desktop
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          Add-Type -AssemblyName System.Drawing
+          Add-Type -AssemblyName System.Windows.Forms
+          Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public class WinGui {
+              [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd,int nCmdShow);
+              [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+          }
+          '@
+          Write-Host "Running as $(whoami), SESSION=$([System.Diagnostics.Process]::GetCurrentProcess().SessionId)"
+          Write-Host "Screen $([System.Windows.Forms.Screen]::PrimaryScreen.Bounds)"
+          Write-Host "OBS executable $env:OBS_EXE"
+          $p=Start-Process -FilePath $env:OBS_EXE -ArgumentList @('--portable','--studio-mode','--disable-updater','--disable-missing-files-check','--multi') -WorkingDirectory (Split-Path $env:OBS_EXE) -PassThru
+          for($i=0;$i -lt 16;$i++){
+            Start-Sleep 2
+            $p.Refresh()
+            Write-Host "OBS PID=$($p.Id) alive=$(!$p.HasExited) WindowHandle=$($p.MainWindowHandle)"
+            if($p.HasExited){break}
+            if($p.MainWindowHandle -ne [IntPtr]::Zero){break}
+          }
+          if(!$p.HasExited -and $p.MainWindowHandle -ne [IntPtr]::Zero) {
+            [WinGui]::ShowWindow($p.MainWindowHandle,3)|Out-Null
+            [WinGui]::SetForegroundWindow($p.MainWindowHandle)|Out-Null
+          }
+          Start-Sleep 8
+          New-Item -ItemType Directory -Force visual-tests/results|Out-Null
+          $r=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $bmp=New-Object System.Drawing.Bitmap($r.Width,$r.Height)
+          $graphics=[System.Drawing.Graphics]::FromImage($bmp)
+          try{$graphics.CopyFromScreen($r.Left,$r.Top,0,0,$bmp.Size)}
+          catch{Write-Host "Screenshot error $_"}
+          $graphics.Dispose()
+          $bmp.Save((Join-Path $PWD 'visual-tests/results/windows-obs-screen.png'),[System.Drawing.Imaging.ImageFormat]::Png)
+          $bmp.Dispose()
+          $p.Refresh()
+          Write-Host "OBS running=$(!$p.HasExited), session=$($p.SessionId), hwnd=$($p.MainWindowHandle)"
+          $logs=Get-ChildItem $env:OBS_ROOT -Filter '*.txt' -File -Recurse -ErrorAction SilentlyContinue|Where-Object{$_.FullName -match 'logs'}|Select-Object -Last 2
+          foreach($l in $logs){Write-Host "OBS log $($l.FullName)";Get-Content $l.FullName -Tail 75}
+          Get-ChildItem visual-tests/results|Format-Table Name,Length
+          if(!$p.HasExited){Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Windows-OBS-actual-screenshot
+          path: visual-tests/results/windows-obs-screen.png
+          if-no-files-found: error
+      - name: Commit screenshot to branch for review
+        shell: pwsh
+        run: |
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git config user.name 'github-actions[bot]'
+          git add visual-tests/results/windows-obs-screen.png
+          git commit -m "Store OBS desktop screenshot from Windows test" 
+          git push origin HEAD:obs-linein-alert
