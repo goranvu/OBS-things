@@ -1,4 +1,4 @@
-OBS Automatic Line In Sound Level Control v3.0
+OBS Automatic Line In Sound Level Control v3.1
 =====================================================
 Windows 10, OBS Studio 31.x (x64)
 
@@ -7,15 +7,17 @@ INSTALL
 - Copy obs-linein-alert directory from ZIP to
   C:\ProgramData\obs-studio\plugins\
 - Start OBS. There is NO longer any thin volume bar or Auto checkbox under Program.
-- Open OBS menu Tools > Аутоматска контрола нивоа звука
+- Open OBS menu Tools > Automatska kontrola nivoa zvuka
 - The item is CHECKED every time OBS starts. It is not persisted as OFF.
 - Click the checked item to DISABLE all automatic level corrections.
 - Click again to ENABLE them. The existing Windows Recording gain is not
   automatically reverted upon disabling.
 
-SAME ADAPTIVE CONTROL AS v2.2
+ADAPTIVE CONTROL (UPDATED RESPONSE TIMES)
 - Sustained peaks close to clipping for two seconds: Windows Line In DOWN 3 dB.
-- Sustained quiet/modulated sound: Windows Line In UP 2 dB in slow steps.
+- Sustained quiet/modulated sound for about THREE seconds: Windows Line In UP 2 dB.
+- Repeat quiet sound recovery after at least another THREE seconds.
+- After a reduction, wait at least THREE seconds before raising again.
 - Never boost background silence or steady noise.
 - Maximum +/-18 dB from baseline, bounded by hardware Recording level range.
 - NO speech/music classification; NO video or volume UI in Program display.

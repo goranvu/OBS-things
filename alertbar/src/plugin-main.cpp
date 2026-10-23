@@ -126,7 +126,7 @@ protected:
             hr=client->Start();
             if(FAILED(hr)) {failed("WASAPI capture start",hr);break;}
             ready=true;
-            blog(LOG_INFO,"[Line In Alert] AUTO adaptive gain v2.2 ready: DOWN 3 dB after 2s, UP 2 dB for quiet speech, safe startup +/-18 dB window.");
+            blog(LOG_INFO,"[Line In Alert] AUTO gain v3.1 ready: DOWN -3 dB after 2s sustained high level; UP +2 dB after 3s sustained quiet audio; +/-18 dB safety window.");
             alert::AdaptiveGain logic;
             using Clock=std::chrono::steady_clock;
             auto slotStart=Clock::now();
@@ -318,7 +318,7 @@ public:
         }
         // Official OBS frontend API. OBS owns the Tools menu itself.
         QAction*action=static_cast<QAction*>(
-            obs_frontend_add_tools_menu_qaction(u8"Аутоматска контрола нивоа звука"));
+            obs_frontend_add_tools_menu_qaction("Automatska kontrola nivoa zvuka"));
         if(action){
             autoAction=action;
             action->setCheckable(true);
@@ -366,7 +366,7 @@ extern "C" const char*obs_module_description(void) {
 }
 extern "C" bool obs_module_load(void) {
     obs_frontend_add_event_callback(frontendEvent,nullptr);
-    blog(LOG_INFO,"[Line In Alert] v3.0 headless automatic Line In gain control. Tools menu enabled by default.");
+    blog(LOG_INFO,"[Line In Alert] v3.1 headless automatic Line In gain control. Tools menu enabled by default.");
     return true;
 }
 extern "C" void obs_module_unload(void) {

@@ -17,7 +17,7 @@ inline float requestedGainDb(GainAction action,float currentDb,float initialDb,
     return currentDb;
 }
 class AdaptiveGain {
-    static constexpr int HISTORY=16; // Four seconds, 250ms windows
+    static constexpr int HISTORY=12; // Three seconds, 250ms windows
     std::array<float,HISTORY> peaks{};
     std::array<bool,HISTORY> active{};
     int cursor=0,filled=0,hotWindows=0;
@@ -42,7 +42,7 @@ public:
         hotWindows=(audible && safePeak>=.89125094f)?hotWindows+1:0;
         if(hotWindows>=8) {
             hotWindows=0;sinceAction=0;
-            afterReductionHold=16; // wait 4s before recovering after loud section
+            afterReductionHold=12; // wait 3s before recovering after loud section
             return GainAction::Down3;
         }
         if(filled<HISTORY || afterReductionHold>0 || sinceAction<12)
@@ -61,8 +61,8 @@ public:
         // Require either changing envelope or word pauses to reject
         // unchanging ventilation/hum.
         const bool modulated=(smallest>.0f && largest>=smallest*1.6f)
-                              || (quietPauses>=2 && audibleWindows>=8);
-        if(audibleWindows>=8 && tooHigh<=1 && hotWindows==0 && modulated) {
+                              || (quietPauses>=2 && audibleWindows>=6);
+        if(audibleWindows>=6 && tooHigh<=1 && hotWindows==0 && modulated) {
             sinceAction=0;   // +2dB at most every 3 seconds
             return GainAction::Up2;
         }
