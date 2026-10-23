@@ -23,4 +23,6 @@ set_target_properties(${CMAKE_PROJECT_NAME} PROPERTIES
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 
 add_executable(alert-tests src/alert-tests.cpp)
+add_executable(music-tests src/music-tests.cpp)
+target_compile_features(music-tests PRIVATE cxx_std_17)
 target_compile_features(alert-tests PRIVATE cxx_std_17)

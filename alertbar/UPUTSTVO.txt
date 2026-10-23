@@ -10,3 +10,7 @@ device_id=<Windows MMDevice endpoint ID>
 The Windows endpoint peak meter is pre-endpoint attenuation and cannot diagnose all analog pre-ADC clipping.
 This plugin does not interfere with the existing viewer-counter DLL.
 Tested only algorithmically, not on the physical sound card.
+
+VERSION 1.1: MUSIC DETECTION
+During MUSIC-LIKE audio (sustained harmonic and stable spectrum), strip automatically grows from 4 px to 13 px. Speech or silence returns it to 4 px.
+Music detection is a lightweight, locally computed heuristic on PCM samples, not a trained AI model; false positives and false negatives are possible, especially with choir, singing, and speech over music. If Windows WASAPI shared capture fails, stays 4 px; peak meter still works. The DLL does not change any audio levels.

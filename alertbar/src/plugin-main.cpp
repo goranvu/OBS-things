@@ -4,10 +4,17 @@
 #define NOMINMAX
 #include <windows.h>
 #include <mmdeviceapi.h>
+#include <audioclient.h>
+#include <wrl/client.h>
 #include <endpointvolume.h>
 #include <functiondiscoverykeys_devpkey.h>
 #include <wrl/client.h>
 #include <QHBoxLayout>
+#include <QThread>
+#include <atomic>
+#include <memory>
+#include <cstring>
+#include "music-detector.hpp"
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QMainWindow>
@@ -30,6 +37,7 @@ namespace {
 class AlertBar:public QWidget {
     alert::Detector detector;
     bool online=false;
+    bool activeMusic=false;
     int64_t now=0;
 public:
     explicit AlertBar(QWidget*p):QWidget(p){
@@ -41,7 +49,8 @@ public:
     void feed(float peak,int64_t time){
         online=true;now=time;detector.update(peak,time);update();
     }
-    void offline(){ online=false;detector.reset();update(); }
+    void setMusic(bool music){if(activeMusic!=music){activeMusic=music;setFixedHeight(music?13:4);update();}}
+    void offline(){ online=false;detector.reset();setMusic(false);update(); }
     void paintEvent(QPaintEvent*)override {
         QPainter p(this);
         p.fillRect(rect(),QColor(43,44,46));
@@ -66,12 +75,114 @@ struct ComInit {
     ~ComInit(){if(owned)CoUninitialize();}
     bool ok()const{return SUCCEEDED(hr)||hr==RPC_E_CHANGED_MODE;}
 };
+
+class MusicCapture: public QThread {
+    std::wstring deviceId;
+    static constexpr GUID pcmGuid={0x00000001,0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static constexpr GUID floatGuid={0x00000003,0x0000,0x0010,{0x80,0x00,0x00,0xaa,0x00,0x38,0x9b,0x71}};
+    static float sample(const BYTE*p,int kind){
+        if(kind==1){float x=0;std::memcpy(&x,p,4);return std::isfinite(x)?x:0;}
+        if(kind==2){int16_t v=0;std::memcpy(&v,p,2);return float(v)/32768.f;}
+        if(kind==3){int32_t v=p[0]|(int32_t(p[1])<<8)|(int32_t(p[2])<<16);
+                    if(v&0x800000)v|=~0xffffff;return float(v)/8388608.f;}
+        if(kind==4){int32_t v=0;std::memcpy(&v,p,4);return float(double(v)/2147483648.);}
+        return 0;
+    }
+public:
+    std::atomic<bool> stopFlag{false}, isMusic{false}, isReady{false};
+    explicit MusicCapture(const QString&id):deviceId(id.toStdWString()){}
+protected:
+    void run() override {
+        HRESULT init=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
+        if(FAILED(init)){blog(LOG_WARNING,"[Line In Alert] Audio classifier COM initialization failed.");return;}
+        auto cleanup=[](){CoUninitialize();};
+        do {
+            ComPtr<IMMDeviceEnumerator> en;
+            if(FAILED(CoCreateInstance(__uuidof(MMDeviceEnumerator),nullptr,CLSCTX_ALL,IID_PPV_ARGS(&en))))break;
+            ComPtr<IMMDevice> d;
+            if(FAILED(en->GetDevice(deviceId.c_str(),&d)))break;
+            ComPtr<IAudioClient> client;
+            if(FAILED(d->Activate(__uuidof(IAudioClient),CLSCTX_ALL,nullptr,reinterpret_cast<void**>(client.GetAddressOf()))))break;
+            WAVEFORMATEX*wf=nullptr;
+            if(FAILED(client->GetMixFormat(&wf))||!wf)break;
+            int channels=wf->nChannels,bits=wf->wBitsPerSample;
+            int rate=(int)wf->nSamplesPerSec,block=wf->nBlockAlign;
+            bool fp=wf->wFormatTag==WAVE_FORMAT_IEEE_FLOAT;
+            bool pcm=wf->wFormatTag==WAVE_FORMAT_PCM;
+            if(wf->wFormatTag==WAVE_FORMAT_EXTENSIBLE &&
+               wf->cbSize>=sizeof(WAVEFORMATEXTENSIBLE)-sizeof(WAVEFORMATEX)) {
+                auto *ext=reinterpret_cast<WAVEFORMATEXTENSIBLE*>(wf);
+                fp=IsEqualGUID(ext->SubFormat,floatGuid);
+                pcm=IsEqualGUID(ext->SubFormat,pcmGuid);
+            }
+            int kind=fp&&bits==32?1:pcm&&bits==16?2:pcm&&bits==24?3:pcm&&bits==32?4:0;
+            if(channels<1||channels>32||rate<8000||rate>192000||kind==0||
+               block<channels*(bits/8)){
+                blog(LOG_WARNING,"[Line In Alert] Unsupported input format for music detector.");
+                CoTaskMemFree(wf);break;
+            }
+            HRESULT hr=client->Initialize(AUDCLNT_SHAREMODE_SHARED,0,1000000,0,wf,nullptr);
+            CoTaskMemFree(wf);
+            if(FAILED(hr)){
+                blog(LOG_WARNING,"[Line In Alert] WASAPI shared capture unavailable: 0x%08lx.",(unsigned long)hr);
+                break;
+            }
+            ComPtr<IAudioCaptureClient> capture;
+            if(FAILED(client->GetService(IID_PPV_ARGS(&capture))))break;
+            if(FAILED(client->Start()))break;
+            blog(LOG_INFO,"[Line In Alert] Music classifier started on Line In.");
+            isReady=true;
+            music::MusicDetector detector;
+            double phase=0;
+            auto lastPacket=std::chrono::steady_clock::now();
+            while(!stopFlag) {
+                UINT32 packet=0;
+                HRESULT step=capture->GetNextPacketSize(&packet);
+                if(FAILED(step))break;
+                if(packet==0) {
+                    // Input disconnected or silent: never retain music state indefinitely.
+                    if(std::chrono::steady_clock::now()-lastPacket>std::chrono::milliseconds(700)){
+                        isMusic=false;
+                    }
+                    QThread::msleep(20);
+                    continue;
+                }
+                do {
+                    BYTE*ptr=nullptr;UINT32 frames=0;DWORD flags=0;
+                    if(FAILED(capture->GetBuffer(&ptr,&frames,&flags,nullptr,nullptr))){packet=0;break;}
+                    const bool silent=(flags&AUDCLNT_BUFFERFLAGS_SILENT)!=0;
+                    int stride=bits/8;
+                    for(UINT32 f=0;f<frames;f++) {
+                        float mono=0;
+                        if(!silent && ptr) {
+                            const BYTE*at=ptr+size_t(f)*block;
+                            for(int ch=0;ch<std::min(channels,2);++ch)
+                                mono+=sample(at+ch*stride,kind);
+                            mono/=float(std::min(channels,2));
+                        }
+                        phase+=16000.0/rate;
+                        if(phase>=1.0){detector.consume(mono);phase-=1.0;}
+                    }
+                    capture->ReleaseBuffer(frames);
+                    lastPacket=std::chrono::steady_clock::now();
+                    isMusic=detector.music();
+                    if(FAILED(capture->GetNextPacketSize(&packet))){packet=0;break;}
+                }while(packet>0&&!stopFlag);
+            }
+            isMusic=false;isReady=false;
+            client->Stop();
+        }while(false);
+        cleanup();
+    }
+};
+
 class Controller:public QObject {
     QMainWindow *main;
     ComInit com;
     ComPtr<IMMDeviceEnumerator> en;
     ComPtr<IMMDevice> dev;
     ComPtr<IAudioMeterInformation> meter;
+    std::unique_ptr<MusicCapture> musicCapture;
     QPointer<AlertBar> bar;
     std::vector<float> samples;
     QTimer timer;
@@ -92,6 +203,7 @@ public:
     ~Controller()override{
         timer.stop();
         if(bar){delete bar.data();bar.clear();}
+        if(musicCapture){musicCapture->stopFlag=true;musicCapture->wait();musicCapture.reset();}
         meter.Reset();dev.Reset();en.Reset();
     }
     void attach(){
@@ -116,6 +228,7 @@ public:
     }
     void searchDevice(){
         lastScan=clock.elapsed();
+        if(musicCapture){musicCapture->stopFlag=true;musicCapture->wait();musicCapture.reset();}
         if(!en)return;
         ComPtr<IMMDeviceCollection> list;
         if(FAILED(en->EnumAudioEndpoints(eCapture,DEVICE_STATE_ACTIVE,&list)))return;
@@ -161,6 +274,8 @@ public:
         UINT count=0;
         if(FAILED(newMeter->GetMeteringChannelCount(&count))||count<1||count>32)return;
         dev=newDev;meter=newMeter;samples.assign(count,0.0f);
+        musicCapture=std::make_unique<MusicCapture>(chosen);
+        musicCapture->start();
         blog(LOG_INFO,"[Line In Alert] Capture endpoint monitored (%u channels).",count);
     }
     void tick(){
@@ -168,13 +283,16 @@ public:
         if(!meter&&clock.elapsed()-lastScan>=3000)searchDevice();
         if(!meter)return;
         if(FAILED(meter->GetChannelsPeakValues((UINT)samples.size(),samples.data()))){
+            if(musicCapture){musicCapture->stopFlag=true;musicCapture->wait();musicCapture.reset();}
             meter.Reset();dev.Reset();samples.clear();
             if(bar)bar->offline();
             lastScan=clock.elapsed();return;
         }
         float peak=0;
         for(float s:samples)if(std::isfinite(s))peak=std::max(peak,s);
-        if(bar)bar->feed(peak,clock.elapsed());
+        if(bar){bar->feed(peak,clock.elapsed());
+            bar->setMusic(musicCapture && musicCapture->isReady && musicCapture->isMusic);
+        }
     }
 };
 QPointer<Controller> controller;
@@ -199,7 +317,7 @@ extern "C" const char*obs_module_description(void){
 }
 extern "C" bool obs_module_load(void){
     obs_frontend_add_event_callback(eventCallback,nullptr);
-    blog(LOG_INFO,"[Line In Alert] Native plugin v1.0 loaded.");return true;
+    blog(LOG_INFO,"[Line In Alert] Native plugin v1.1 loaded (music-aware 4/13 px).");return true;
 }
 extern "C" void obs_module_unload(void){
     obs_frontend_remove_event_callback(eventCallback,nullptr);
