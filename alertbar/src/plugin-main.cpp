@@ -137,9 +137,9 @@ public:
                    pv.vt==VT_LPWSTR&&pv.pwszVal)name=QString::fromWCharArray(pv.pwszVal);
                 PropVariantClear(&pv);
             }
-            QString small=name.toLower();
-            if(small.contains("line in")||small.contains("line-in")||
-               small.contains("line input")||small.contains("linijski ulaz"))
+            QString lowered=name.toLower();
+            if(lowered.contains("line in")||lowered.contains("line-in")||
+               small.contains("line input")||lowered.contains("linijski ulaz"))
                 line.push_back(id);
         }
         QString chosen;
