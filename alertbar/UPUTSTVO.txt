@@ -1,6 +1,6 @@
 OBS Line In Alert Bar for Windows 10 / OBS Studio 31.x
 Close OBS. Copy the obs-linein-alert folder to C:\ProgramData\obs-studio\plugins\
-Enable Studio Mode. A thin 13px indicator appears directly below PROGRAM.
+Enable Studio Mode. A thin 4px indicator appears directly below PROGRAM.
 Windows Recording endpoint named "Line In" is selected automatically.
 GREEN to -12 dBFS; YELLOW -12 to -3 dBFS; RED above -3 dBFS with flashing alert.
 No text, no controls, no slider, no automatic gain, no audio changes.

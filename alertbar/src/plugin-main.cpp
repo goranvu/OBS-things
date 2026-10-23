@@ -34,7 +34,7 @@ class AlertBar:public QWidget {
 public:
     explicit AlertBar(QWidget*p):QWidget(p){
         setObjectName("obs_linein_alert_bar");
-        setFixedHeight(13);
+        setFixedHeight(4);
         setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
         setAttribute(Qt::WA_TransparentForMouseEvents);
     }
