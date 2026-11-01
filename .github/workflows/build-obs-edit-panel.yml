@@ -22,8 +22,8 @@ jobs:
           Copy-Item "obs-edit-panel/buildspec.json" "build-project/buildspec.json" -Force
           Copy-Item "obs-edit-panel/src/plugin.cpp" "build-project/src/plugin.cpp" -Force
           New-Item -ItemType Directory -Force -Path "build-project/.deps" | Out-Null
-          Invoke-WebRequest "https://github.com/obsproject/obs-studio/archive/refs/tags/33.0.1.zip" -OutFile "build-project/.deps/33.0.1.zip"
-          $obsHash = (Get-FileHash "build-project/.deps/33.0.1.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          Invoke-WebRequest "https://github.com/obsproject/obs-studio/archive/refs/tags/31.1.2.zip" -OutFile "build-project/.deps/31.1.2.zip"
+          $obsHash = (Get-FileHash "build-project/.deps/31.1.2.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
           $spec = Get-Content "build-project/buildspec.json" -Raw | ConvertFrom-Json
           $spec.dependencies.'obs-studio'.hashes = @{ "windows-x64" = $obsHash }
           $spec | ConvertTo-Json -Depth 10 | Set-Content "build-project/buildspec.json"
@@ -43,5 +43,5 @@ jobs:
           Copy-Item $dll.FullName "dist/obs-edit-panel.dll" -Force
       - uses: actions/upload-artifact@v4
         with:
-          name: obs-edit-panel-obs33-win64
+          name: obs-edit-panel-obs31.1.2-win64
           path: dist/obs-edit-panel.dll
