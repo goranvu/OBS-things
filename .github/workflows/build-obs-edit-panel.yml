@@ -14,6 +14,9 @@ jobs:
         shell: pwsh
         run: |
           git clone --depth 1 https://github.com/obsproject/obs-plugintemplate.git build-project
+          $preset = Get-Content "build-project/CMakePresets.json" -Raw
+          $preset = $preset.Replace("Visual Studio 17 2022", "Visual Studio 18 2026")
+          Set-Content "build-project/CMakePresets.json" $preset
           Copy-Item "obs-edit-panel/CMakeLists.txt" "build-project/CMakeLists.txt" -Force
           Copy-Item "obs-edit-panel/buildspec.json" "build-project/buildspec.json" -Force
           Copy-Item "obs-edit-panel/src/plugin.cpp" "build-project/src/plugin.cpp" -Force
