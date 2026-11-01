@@ -2,6 +2,7 @@
 #include <obs-frontend-api.h>
 
 #include <QBoxLayout>
+#include <QFontInfo>
 #include <QMainWindow>
 #include <QPlainTextEdit>
 #include <QPointer>
@@ -64,13 +65,35 @@ static bool install_text_box()
 
     auto *textBox = new QPlainTextEdit(options);
     textBox->setObjectName(QStringLiteral("obs-edit-panel-input"));
-    textBox->setPlaceholderText(QStringLiteral("Unesi tekst..."));
     textBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     textBox->setMinimumWidth(72);
     textBox->setFixedHeight(110);
     textBox->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     textBox->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     textBox->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+
+    // Display-only text: no editing, selection, caret, or mouse focus.
+    textBox->setPlainText(
+        QStringLiteral("Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
+                       "Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. "
+                       "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris "
+                       "nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in "
+                       "reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla "
+                       "pariatur. Excepteur sint occaecat cupidatat non proident, sunt in "
+                       "culpa qui officia deserunt mollit anim id est laborum."));
+    textBox->setReadOnly(true);
+    textBox->setTextInteractionFlags(Qt::NoTextInteraction);
+    textBox->setFocusPolicy(Qt::NoFocus);
+    textBox->setCursor(Qt::ArrowCursor);
+
+    QFont font = textBox->font();
+    int basePixelSize = QFontInfo(font).pixelSize();
+    if (basePixelSize <= 0)
+        basePixelSize = font.pointSizeF() > 0 ? qRound(font.pointSizeF() * 96.0 / 72.0) : 13;
+    font.setPixelSize(basePixelSize + 2);
+    textBox->setFont(font);
+    textBox->setStyleSheet(QStringLiteral(
+        "QPlainTextEdit#obs-edit-panel-input { color: #ffff00; }"));
 
     const int tbarIndex = layout->indexOf(tbar);
     if (tbarIndex < 0) {
@@ -83,7 +106,7 @@ static bool install_text_box()
     layout->insertSpacing(tbarIndex + 1, qMax(1, buttonHeight * 2));
     layout->insertWidget(tbarIndex + 2, textBox);
     g_text = textBox;
-    blog(LOG_INFO, "[obs-edit-panel] Multiline text box installed below transition slider");
+    blog(LOG_INFO, "[obs-edit-panel] Read-only multiline text box installed below transition slider");
     return true;
 }
 
