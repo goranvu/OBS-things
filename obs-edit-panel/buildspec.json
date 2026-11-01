@@ -1,0 +1,28 @@
+{
+  "dependencies": {
+    "obs-studio": {
+      "version": "33.0.1",
+      "baseUrl": "https://github.com/obsproject/obs-studio/archive/refs/tags",
+      "label": "OBS 33.0.1 sources"
+    },
+    "prebuilt": {
+      "version": "2026-10-29",
+      "baseUrl": "https://github.com/obsproject/obs-deps/releases/download",
+      "label": "Pre-built OBS dependencies"
+    },
+    "qt6": {
+      "version": "2026-10-29",
+      "baseUrl": "https://github.com/obsproject/obs-deps/releases/download",
+      "label": "Pre-built Qt6"
+    }
+  },
+  "platformConfig": {
+    "macos": { "bundleId": "com.goranvu.obs-edit-panel" }
+  },
+  "name": "obs-edit-panel",
+  "displayName": "OBS Edit Panel",
+  "version": "0.1.0",
+  "author": "Goran",
+  "website": "https://github.com/goranvu/OBS-things",
+  "email": "noreply@example.com"
+}
