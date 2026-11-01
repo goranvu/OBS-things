@@ -5,30 +5,41 @@ on:
       - "obs-edit-panel/**"
       - ".github/workflows/build-obs-edit-panel.yml"
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
-      - name: Get official OBS plugin build support
+
+      - name: Get official OBS plugin build system
         shell: pwsh
         run: |
           git clone --depth 1 https://github.com/obsproject/obs-plugintemplate.git "$env:RUNNER_TEMP/obs-template"
-          New-Item -ItemType Directory -Force -Path "obs-edit-panel/cmake/common" | Out-Null
-          Copy-Item "$env:RUNNER_TEMP/obs-template/cmake/common/*" "obs-edit-panel/cmake/common/" -Recurse -Force
-          Copy-Item "$env:RUNNER_TEMP/obs-template/cmake/Find*.cmake" "obs-edit-panel/cmake/" -Force -ErrorAction SilentlyContinue
-          Copy-Item "$env:RUNNER_TEMP/obs-template/cmake/*.cmake" "obs-edit-panel/cmake/" -Force -ErrorAction SilentlyContinue
-      - name: Configure
-        run: cmake -S obs-edit-panel -B obs-edit-panel/build -G "Visual Studio 18 2026" -A x64
-      - name: Compile
-        run: cmake --build obs-edit-panel/build --config RelWithDebInfo --parallel
-      - name: Collect DLL
+          New-Item -ItemType Directory -Force -Path "build-project" | Out-Null
+          Copy-Item "$env:RUNNER_TEMP/obs-template/." "build-project/" -Recurse -Force
+          Copy-Item "obs-edit-panel/CMakeLists.txt" "build-project/CMakeLists.txt" -Force
+          Copy-Item "obs-edit-panel/buildspec.json" "build-project/buildspec.json" -Force
+          New-Item -ItemType Directory -Force -Path "build-project/src" | Out-Null
+          Copy-Item "obs-edit-panel/src/plugin.cpp" "build-project/src/plugin.cpp" -Force
+
+      - name: Configure, compile and install OBS plugin
+        shell: pwsh
+        working-directory: build-project
+        env:
+          CI: "true"
+        run: |
+          .github/scripts/Build-Windows.ps1 -Target x64 -Configuration RelWithDebInfo
+
+      - name: Verify DLL
         shell: pwsh
         run: |
-          $dll = Get-ChildItem "obs-edit-panel/build" -Recurse -Filter "obs-edit-panel.dll" | Select-Object -First 1
-          if (-not $dll) { throw "DLL was not produced" }
+          $dll = Get-ChildItem "build-project/release" -Recurse -Filter "obs-edit-panel.dll" | Select-Object -First 1
+          if (-not $dll) { throw "obs-edit-panel.dll was not produced" }
           New-Item -ItemType Directory -Force -Path "dist" | Out-Null
-          Copy-Item $dll.FullName "dist/obs-edit-panel.dll"
+          Copy-Item $dll.FullName "dist/obs-edit-panel.dll" -Force
+          Get-Item "dist/obs-edit-panel.dll" | Format-List FullName,Length
+
       - uses: actions/upload-artifact@v4
         with:
           name: obs-edit-panel-obs33-win64
