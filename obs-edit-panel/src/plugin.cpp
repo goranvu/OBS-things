@@ -23,13 +23,14 @@ static QWidget *find_program_options(QWidget *root)
         if (button->property("class").toString() != QStringLiteral("icon-dots-vert"))
             continue;
 
-        QWidget *candidate = button->parentWidget();
-        if (!candidate)
-            continue;
-
-        auto *layout = qobject_cast<QVBoxLayout *>(candidate->layout());
-        if (layout && candidate->findChild<QSlider *>())
-            return candidate;
+        // The transition button may be nested several levels below the
+        // Studio Mode program-options container. Walk all ancestors.
+        for (QWidget *candidate = button->parentWidget(); candidate;
+             candidate = candidate->parentWidget()) {
+            auto *layout = qobject_cast<QVBoxLayout *>(candidate->layout());
+            if (layout && candidate->findChild<QSlider *>())
+                return candidate;
+        }
     }
     return nullptr;
 }
