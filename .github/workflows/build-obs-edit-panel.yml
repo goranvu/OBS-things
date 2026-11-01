@@ -19,7 +19,7 @@ jobs:
           Copy-Item "$env:RUNNER_TEMP/obs-template/cmake/Find*.cmake" "obs-edit-panel/cmake/" -Force -ErrorAction SilentlyContinue
           Copy-Item "$env:RUNNER_TEMP/obs-template/cmake/*.cmake" "obs-edit-panel/cmake/" -Force -ErrorAction SilentlyContinue
       - name: Configure
-        run: cmake -S obs-edit-panel -B obs-edit-panel/build -G "Visual Studio 17 2022" -A x64
+        run: cmake -S obs-edit-panel -B obs-edit-panel/build -G "Visual Studio 18 2026" -A x64
       - name: Compile
         run: cmake --build obs-edit-panel/build --config RelWithDebInfo --parallel
       - name: Collect DLL
