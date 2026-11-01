@@ -21,6 +21,12 @@ jobs:
           Copy-Item "obs-edit-panel/CMakeLists.txt" "build-project/CMakeLists.txt" -Force
           Copy-Item "obs-edit-panel/buildspec.json" "build-project/buildspec.json" -Force
           Copy-Item "obs-edit-panel/src/plugin.cpp" "build-project/src/plugin.cpp" -Force
+          New-Item -ItemType Directory -Force -Path "build-project/.deps" | Out-Null
+          Invoke-WebRequest "https://github.com/obsproject/obs-studio/archive/refs/tags/33.0.1.zip" -OutFile "build-project/.deps/33.0.1.zip"
+          $obsHash = (Get-FileHash "build-project/.deps/33.0.1.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          $spec = Get-Content "build-project/buildspec.json" -Raw | ConvertFrom-Json
+          $spec.dependencies.'obs-studio'.hashes = @{ "windows-x64" = $obsHash }
+          $spec | ConvertTo-Json -Depth 10 | Set-Content "build-project/buildspec.json"
       - name: Build plugin
         shell: pwsh
         working-directory: build-project
