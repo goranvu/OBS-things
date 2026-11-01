@@ -2,8 +2,8 @@
 #include <obs-frontend-api.h>
 
 #include <QBoxLayout>
-#include <QLineEdit>
 #include <QMainWindow>
+#include <QPlainTextEdit>
 #include <QPointer>
 #include <QPushButton>
 #include <QSlider>
@@ -14,7 +14,8 @@
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE("obs-edit-panel", "en-US")
 
-static QPointer<QLineEdit> g_edit;
+static QPointer<QPlainTextEdit> g_text;
+static QPointer<QTimer> g_retry_timer;
 
 static QWidget *find_program_options(QWidget *root)
 {
@@ -35,66 +36,87 @@ static QWidget *find_program_options(QWidget *root)
     return nullptr;
 }
 
-static void install_edit_field()
+static bool install_text_box()
 {
     auto *window = static_cast<QMainWindow *>(obs_frontend_get_main_window());
     if (!window || !obs_frontend_preview_program_mode_active())
-        return;
+        return false;
 
     QWidget *options = find_program_options(window);
     if (!options)
-        return;
+        return false;
 
     auto *layout = qobject_cast<QVBoxLayout *>(options->layout());
     auto *tbar = options->findChild<QSlider *>();
     if (!layout || !tbar)
-        return;
+        return false;
 
-    if (options->findChild<QLineEdit *>(QStringLiteral("obs-edit-panel-input")))
-        return;
+    if (auto *existing = options->findChild<QPlainTextEdit *>(
+            QStringLiteral("obs-edit-panel-input"))) {
+        g_text = existing;
+        return true;
+    }
 
     int buttonHeight = 0;
     const auto buttons = options->findChildren<QPushButton *>();
     for (QPushButton *button : buttons)
         buttonHeight = qMax(buttonHeight, button->sizeHint().height());
 
-    auto *edit = new QLineEdit(options);
-    edit->setObjectName(QStringLiteral("obs-edit-panel-input"));
-    edit->setPlaceholderText(QStringLiteral("Unesi tekst..."));
-    edit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    edit->setMinimumWidth(72);
+    auto *textBox = new QPlainTextEdit(options);
+    textBox->setObjectName(QStringLiteral("obs-edit-panel-input"));
+    textBox->setPlaceholderText(QStringLiteral("Unesi tekst..."));
+    textBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    textBox->setMinimumWidth(72);
+    textBox->setFixedHeight(110);
+    textBox->setLineWrapMode(QPlainTextEdit::WidgetWidth);
+    textBox->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    textBox->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
     const int tbarIndex = layout->indexOf(tbar);
     if (tbarIndex < 0) {
-        edit->deleteLater();
-        return;
+        textBox->deleteLater();
+        return false;
     }
 
-    // Leave a vertical gap equal to two transition-button heights.
-    layout->insertSpacing(tbarIndex, qMax(1, buttonHeight * 2));
-    layout->insertWidget(tbarIndex + 1, edit);
-    g_edit = edit;
-    blog(LOG_INFO, "[obs-edit-panel] Inline text field installed in Studio Mode");
+    // Put the text box below the transition slider, with a gap equal
+    // to two transition-button heights.
+    layout->insertSpacing(tbarIndex + 1, qMax(1, buttonHeight * 2));
+    layout->insertWidget(tbarIndex + 2, textBox);
+    g_text = textBox;
+    blog(LOG_INFO, "[obs-edit-panel] Multiline text box installed below transition slider");
+    return true;
 }
 
 static void on_frontend_event(enum obs_frontend_event event, void *)
 {
     if (event == OBS_FRONTEND_EVENT_STUDIO_MODE_ENABLED) {
-        // OBS creates the Preview/Program controls during this event.
-        QTimer::singleShot(0, install_edit_field);
+        // OBS may finish creating Studio Mode controls after this event.
+        // Retry until the target container exists.
+        if (g_retry_timer)
+            g_retry_timer->start();
     } else if (event == OBS_FRONTEND_EVENT_STUDIO_MODE_DISABLED) {
-        g_edit = nullptr; // OBS destroys the Studio Mode controls with their parent.
+        if (g_retry_timer)
+            g_retry_timer->stop();
+        g_text = nullptr; // OBS destroys the Studio Mode controls with their parent.
     }
 }
 
 bool obs_module_load(void)
 {
-    if (!obs_frontend_get_main_window())
+    auto *window = static_cast<QMainWindow *>(obs_frontend_get_main_window());
+    if (!window)
         return false;
+
+    g_retry_timer = new QTimer(window);
+    g_retry_timer->setInterval(250);
+    QObject::connect(g_retry_timer, &QTimer::timeout, window, [] {
+        if (install_text_box() && g_retry_timer)
+            g_retry_timer->stop();
+    });
 
     obs_frontend_add_event_callback(on_frontend_event, nullptr);
     if (obs_frontend_preview_program_mode_active())
-        QTimer::singleShot(0, install_edit_field);
+        g_retry_timer->start();
 
     blog(LOG_INFO, "[obs-edit-panel] Loaded");
     return true;
@@ -103,6 +125,9 @@ bool obs_module_load(void)
 void obs_module_unload(void)
 {
     obs_frontend_remove_event_callback(on_frontend_event, nullptr);
-    g_edit = nullptr;
+    if (g_retry_timer)
+        g_retry_timer->stop();
+    g_retry_timer = nullptr;
+    g_text = nullptr;
     blog(LOG_INFO, "[obs-edit-panel] Unloaded");
 }
