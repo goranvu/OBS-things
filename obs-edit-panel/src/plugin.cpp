@@ -67,20 +67,14 @@ static bool install_text_box()
     textBox->setObjectName(QStringLiteral("obs-edit-panel-input"));
     textBox->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     textBox->setMinimumWidth(72);
-    textBox->setFixedHeight(110);
+    textBox->setFixedHeight(110 + qMax(1, buttonHeight));
     textBox->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     textBox->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     textBox->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
 
     // Display-only text: no editing, selection, caret, or mouse focus.
-    textBox->setPlainText(
-        QStringLiteral("Lorem ipsum dolor sit amet, consectetur adipiscing elit. "
-                       "Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. "
-                       "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris "
-                       "nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in "
-                       "reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla "
-                       "pariatur. Excepteur sint occaecat cupidatat non proident, sunt in "
-                       "culpa qui officia deserunt mollit anim id est laborum."));
+    // Start empty on every OBS launch / panel creation.
+    textBox->clear();
     textBox->setReadOnly(true);
     textBox->setTextInteractionFlags(Qt::NoTextInteraction);
     textBox->setFocusPolicy(Qt::NoFocus);
@@ -101,9 +95,8 @@ static bool install_text_box()
         return false;
     }
 
-    // Put the text box below the transition slider, with a gap equal
-    // to two transition-button heights.
-    layout->insertSpacing(tbarIndex + 1, qMax(1, buttonHeight * 2));
+    // Keep a one-transition-button-height gap below the slider.
+    layout->insertSpacing(tbarIndex + 1, qMax(1, buttonHeight));
     layout->insertWidget(tbarIndex + 2, textBox);
     g_text = textBox;
     blog(LOG_INFO, "[obs-edit-panel] Read-only multiline text box installed below transition slider");
