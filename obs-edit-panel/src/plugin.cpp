@@ -107,8 +107,9 @@ static bool install_text_box()
     ackButton->setCursor(Qt::ArrowCursor);
     ackButton->setFocusPolicy(Qt::NoFocus);
     ackButton->setStyleSheet(QStringLiteral(
-        "QPushButton#obs-edit-panel-ack { color: red; border: none; "
-        "background: transparent; font-weight: bold; }"));
+        "QPushButton#obs-edit-panel-ack { color: red; "
+        "border: 1px solid palette(mid); background: palette(button); "
+        "font-weight: bold; }"));
     layout->insertWidget(tbarIndex + 3, ackButton);
 
     auto *blinkTimer = new QTimer(ackButton);
@@ -117,9 +118,10 @@ static bool install_text_box()
     QObject::connect(blinkTimer, &QTimer::timeout, ackButton, [ackButton, blinkState] {
         *blinkState = !*blinkState;
         ackButton->setStyleSheet(QStringLiteral(
-            "QPushButton#obs-edit-panel-ack { color: %1; border: none; "
-            "background: transparent; font-weight: bold; }")
-            .arg(*blinkState ? QStringLiteral("red") : QStringLiteral("transparent")));
+            "QPushButton#obs-edit-panel-ack { color: %1; "
+            "border: 1px solid palette(mid); background: palette(button); "
+            "font-weight: bold; }")
+            .arg(*blinkState ? QStringLiteral("red") : QStringLiteral("palette(button)")));
     });
     QObject::connect(ackButton, &QPushButton::clicked, ackButton, [ackButton, blinkTimer, blinkState] {
         blinkTimer->stop();
