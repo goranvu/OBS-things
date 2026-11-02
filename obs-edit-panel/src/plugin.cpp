@@ -87,7 +87,10 @@ static bool install_text_box()
     font.setPixelSize(basePixelSize + 2);
     textBox->setFont(font);
     textBox->setStyleSheet(QStringLiteral(
-        "QPlainTextEdit#obs-edit-panel-input { color: #ffff00; }"));
+        "QPlainTextEdit#obs-edit-panel-input, "
+        "QPlainTextEdit#obs-edit-panel-input:hover, "
+        "QPlainTextEdit#obs-edit-panel-input:focus { "
+        "color: #ffff00; border: none; outline: none; }"));
 
     const int tbarIndex = layout->indexOf(tbar);
     if (tbarIndex < 0) {
@@ -98,6 +101,33 @@ static bool install_text_box()
     // Keep a one-transition-button-height gap below the slider.
     layout->insertSpacing(tbarIndex + 1, qMax(1, buttonHeight));
     layout->insertWidget(tbarIndex + 2, textBox);
+
+    auto *ackButton = new QPushButton(QStringLiteral("Pročitao sam"), options);
+    ackButton->setObjectName(QStringLiteral("obs-edit-panel-ack"));
+    ackButton->setCursor(Qt::ArrowCursor);
+    ackButton->setFocusPolicy(Qt::NoFocus);
+    ackButton->setStyleSheet(QStringLiteral(
+        "QPushButton#obs-edit-panel-ack { color: red; border: none; "
+        "background: transparent; font-weight: bold; }"));
+    layout->insertWidget(tbarIndex + 3, ackButton);
+
+    auto *blinkTimer = new QTimer(ackButton);
+    blinkTimer->setInterval(500);
+    auto *blinkState = new bool(true);
+    QObject::connect(blinkTimer, &QTimer::timeout, ackButton, [ackButton, blinkState] {
+        *blinkState = !*blinkState;
+        ackButton->setStyleSheet(QStringLiteral(
+            "QPushButton#obs-edit-panel-ack { color: %1; border: none; "
+            "background: transparent; font-weight: bold; }")
+            .arg(*blinkState ? QStringLiteral("red") : QStringLiteral("transparent")));
+    });
+    QObject::connect(ackButton, &QPushButton::clicked, ackButton, [ackButton, blinkTimer, blinkState] {
+        blinkTimer->stop();
+        delete blinkState;
+        ackButton->hide();
+    });
+    blinkTimer->start();
+
     g_text = textBox;
     blog(LOG_INFO, "[obs-edit-panel] Read-only multiline text box installed below transition slider");
     return true;
